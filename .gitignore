@@ -31,4 +31,9 @@
 *.swo
 *.swp
 
+#Editor files
+*.vs
+*.vscode
+
 build/*
+out/*

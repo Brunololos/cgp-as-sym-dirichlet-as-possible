@@ -17,6 +17,23 @@ include(libigl)
 
 add_subdirectory("geometry-central")
 
+include(FetchContent)
+FetchContent_Declare(
+  tinyad
+  GIT_REPOSITORY https://github.com/patr-schm/tinyad.git
+  GIT_TAG 75093e14ef0d7bb39657c5f3b2aba1251afaa38c
+)
+#FetchContent_MakeAvailable(tinyad)
+
+FetchContent_GetProperties(tinyad)
+if(NOT tinyad_POPULATED)
+  # Fetch the content using previously declared details
+  FetchContent_Populate(tinyad)
+  message(STATUS "tinyad_SOURCE_DIR: ${tinyad_SOURCE_DIR}")
+  message(STATUS "tinyad_BINARY_DIR: ${tinyad_BINARY_DIR}")
+  add_subdirectory(${tinyad_SOURCE_DIR} ${tinyad_BINARY_DIR})
+endif()
+
 # Add your project files
 file(GLOB SRC_FILES src/*.cpp)
 file(GLOB HEADER_FILES include/*.hpp)
@@ -25,7 +42,7 @@ file(GLOB VIEWER_FILES viewer/*.cpp)
 
 add_library(asdap_core STATIC ${SRC_FILES} ${HEADER_FILES})
 target_include_directories(asdap_core PUBLIC include)
-target_link_libraries(asdap_core PUBLIC geometry-central igl::core)
+target_link_libraries(asdap_core PUBLIC geometry-central igl::core TinyAD)
 
 add_executable(${PROJECT_NAME} main.cpp)
 target_link_libraries(${PROJECT_NAME} PUBLIC asdap_core)

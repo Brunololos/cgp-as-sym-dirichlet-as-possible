@@ -30,14 +30,14 @@ int main(int argc, char *argv[])
   int mode = 0;
   bool virgin = true;
   bool view_all_points = false;
+  bool optimise = false;
 
-  // TODO: implement ASDAPData
-  /* ASDAPData Adata;
-  precomputation(V, F, Adata); */
-
-  // TODO: implement ASDAP (as-symmetric-dirichlet-as-possible)
-  /* // ASDAP
-  ASDAPData data; */
+  // ASDAP (as-symmetric-dirichlet-as-possible)
+  ASDAPData Adata;
+  initMesh(V, F, Adata);
+  Eigen::MatrixXd gradients; // TODO: delete
+  double lr = 0.001;  // TODO: move to Adata or ASDAP config file
+  std::pair<Eigen::MatrixXd, double> result; // result of the last optimisation step
 
   // Viewer
   igl::opengl::glfw::Viewer viewer;
@@ -91,6 +91,60 @@ int main(int argc, char *argv[])
   igl::AABB<Eigen::MatrixXd, 3> tree;
   tree.init(V,F);
 
+  const auto update_edges = [&]()
+  {
+/*     std::cout << "Starting update edges" << std::endl;
+    std::cout << "U rows: " << U.rows() << ", U cols: " << U.cols() << std::endl;
+    std::cout << "grad rows: " << gradients.size() << ", grad cols: " << gradients[0].size() << std::endl; */
+    //Eigen::MatrixXd grad_offset = Eigen::Map<Eigen::MatrixXd, Eigen::Unaligned>(gradients.data(), gradients.size());
+    int UR = U.rows();
+    int UC = U.cols();
+
+    //Eigen::MatrixXd grad_offset = Eigen::MatrixXd(UR, UC);
+    Eigen::MatrixXd grad_offset = U - gradients; // TODO: use this instead of manual looping/adding
+    Eigen::MatrixXi E = Eigen::MatrixXi(UR, 2);
+    //std::cout << "Gradients:" << std::endl;
+    for (int i = 0; i<UR; i++)
+    {
+      //std::cout << gradients[i] << std::endl << std::endl;
+/*       for (int j = 0; j<3; j++)
+      {
+        grad_offset(i, j) = U(i, j) - gradients(i, j);
+      } */
+
+      //std::cout << "Adding edge (" << i << " => " << (UR + i) << ")" << std::endl;
+      E(i, 0) = i;
+      E(i, 1) = UR + i;
+      //std::cout << "set grad_offsets" << std::endl;
+    }
+    // vertical stacking
+    Eigen::MatrixXd P(U.rows()+grad_offset.rows(), U.cols());
+    P << U, grad_offset;
+    //std::cout << "built stacked vertex matrix P with dim: (" << P.rows() << ", " << P.cols() << ")" << std::endl;
+    //std::cout << "edge matrix E has dim: (" << E.rows() << ", " << E.cols() << ")" << std::endl;
+    //viewer.data().line_width = 2.0; // SUPPOSEDLY NOT SUPPORTED ON MAC & WINDOWS
+    viewer.data().set_edges(P, E, CM.row(4));
+    //std::cout << "Set edges" << std::endl;
+  };
+
+  const auto update_mesh_points = [&](Eigen::VectorXi& selected_indices, Eigen::MatrixXd& selected_constraints)
+  {
+    for (int i=0; i<selected_indices.size(); i++)
+    {
+      int index = selected_indices(i);
+      float c0 = selected_constraints(i, 0);
+      float c1 = selected_constraints(i, 1);
+      float c2 = selected_constraints(i, 2);
+      if (c0 != c0 || c1 != c1 || c2 != c2)
+      {
+        std::cout << "found nan value: " << constraints(index) << std::endl;
+      }
+      U(index, 0) = c0;
+      U(index, 1) = c1;
+      U(index, 2) = c2;
+    }
+  };
+
   const auto update_points = [&]()
   {
     // constrained
@@ -129,9 +183,33 @@ int main(int argc, char *argv[])
     // does all precomputations at once
     igl::parallel_for(3, [&](const int i) {
       // TODO: implement asdap_precomputation
-      // asdap_precompute();
+      asdap_precompute(bi, constraints, Adata);
+      update_mesh_points(bi, constraints);
     }, 1);
+    //std::cout << constraints << std::endl;
     update_points();
+  };
+
+  viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer& viewer)->bool
+  {
+    if (optimise && !Adata.hasConverged)
+    {
+          std::cout << "optimisation iteration: " << Adata.iteration << std::endl;
+          result = asdap_step(bi, lr, Adata, U);
+          gradients = result.first;
+          //viewer.data().set_mesh(U,F);
+/*           if (Adata.iteration % 100 == 0)
+          {
+            refresh_mesh();
+            //update_edges();   // TODO: make only work, when gradients are toggled on
+          } */
+    }
+    if (optimise && Adata.hasConverged)
+    {
+      std::cout << "optimisation converged!" << std::endl;
+      optimise = false;
+    }
+    return false;
   };
 
   viewer.callback_mouse_down = [&](igl::opengl::glfw::Viewer& viewer, int, int)->bool
@@ -139,6 +217,10 @@ int main(int argc, char *argv[])
     translate = false;
     selection.mode=selection.OFF;
     update_points();
+    update_constraints();
+    //update_edges();
+    // TODO: make it so the gradient visualisation does not vanish on click
+    refresh_mesh();
     return false;
   };
 
@@ -152,10 +234,17 @@ int main(int argc, char *argv[])
     igl::unproject(last_mouse, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
     for (size_t i = 0; i < selected_ids.size(); i++) {
       all_constraints.row(selected_ids(i)) += (drag_scene-last_scene).cast<double>();
+      //Adata.changedV[selected_ids(i)] = true;
     }
     constraints = igl::slice(all_constraints, bi, 1);
     last_mouse = drag_mouse;
     update_points();
+/*     auto selected_constraints = igl::slice(all_constraints, selected_ids, 1);
+    asdap_precompute(selected_ids, selected_constraints, Adata);
+    update_mesh_points(selected_ids, selected_constraints);
+    refresh_mesh(); */
+/*     update_constraints();
+    refresh_mesh(); */
     return false;
   };
 
@@ -167,15 +256,30 @@ int main(int argc, char *argv[])
     {
       case ' ':
         if (virgin) return true;
-        // TODO: implement asdap_solve
-/*         asdap_solve(constraints, data, U); */
-        viewer.data().set_mesh(U,F);
+        optimise = !optimise;
+        //asdap_optim(bi, lr, Adata, U);
+/*         result = asdap_optim(bi, lr, Adata, U);
+        gradients = result.first;
+        //viewer.data().set_mesh(U,F);
+        refresh_mesh();
+        update_edges();   // TODO: make only work, when gradients are toggled on */
+
+        std::cout << "Total ASDAP energy: " + std::to_string(result.second) << std::endl;
         return true;
       case 'H': case 'h': only_visible = !only_visible; update_points(); return true;
+      case 'N': case 'n':
+        //asdap_energy_face_vertex_gradients(Adata, U, std::vector<size_t>({0, 1, 2}));
+        //result = asdap_energy_gradient(bi, Adata, U);
+        //gradients = result.first;
+        //update_edges();
+
+        std::cout << "Total ASDAP energy: " + std::to_string(result.second) << std::endl;
+        return true; // TODO: this is only a filthy way to quickly show the gradients // TODO: make toggle
       case 'C': case 'c':
         virgin = false;
         constraints_mask = ((constraints_mask+selected_mask)>0).cast<int>();
         update_constraints();
+        refresh_mesh();
         // std::cout << constraints << "\n\n\n";
         // std::cout << bi << "\n\n\n";
         return true;
@@ -188,12 +292,15 @@ int main(int argc, char *argv[])
         update_constraints();
         return true;
       case 'G': case 'g':
+        if (virgin) return true;
         translate = !translate;
         {
           Eigen::MatrixXd CP;
-          Eigen::Vector3d mean = constraints.rowwise().mean();
+          //Eigen::Vector3d mean = constraints.rowwise().mean();
+          Eigen::Vector3d mean = constraints.colwise().mean();
           igl::project(mean, viewer.core().view, viewer.core().proj, viewer.core().viewport, CP);
           last_mouse = Eigen::RowVector3f(viewer.current_mouse_x, viewer.core().viewport(3) - viewer.current_mouse_y, CP(0,2));
+          update_constraints();
         }
         return true;
       case 'K': case 'k':
@@ -221,6 +328,7 @@ int main(int argc, char *argv[])
         return true;
       case 'R': case 'r':
         // reset mesh
+        // TODO: also reset the constraints
         U = V; refresh_mesh(); return true;
       case 'F': case 'f':
         // filter
@@ -233,6 +341,7 @@ int main(int argc, char *argv[])
         update_points();
         return true;
       case 'X': case 'x':
+        if (virgin) return true;
         // reset constrainted positions of selected
         for (size_t i = 0; i < selected_mask.size(); i++) {
           if (selected_mask(i))

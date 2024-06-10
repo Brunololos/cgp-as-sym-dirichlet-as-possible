@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
   igl::readOBJ("../meshes/horse.obj", V, F);
 
   //add constraints
-  std::cout << "Define constrains" << std::endl;
+  std::cout << "Define constraints" << std::endl;
   Eigen::VectorXi constraints_indices(59);
   constraints_indices << 45, 103, 177, 204, 283, 312, 343, 408, 465, 507, 601, 631, 827, 868, 1494, 1803, 1896, 2067, 2902, 3429, 3492, 3567, 3570, 3612, 3661, 4127, 4394, 4442, 4465, 4515, 4544, 4870, 4886, 4900, 4901, 4924, 4928, 4931, 4932, 4938, 4939, 4941, 4945, 4952, 4957, 4959, 4962, 4964, 4969, 4974, 4977, 4978, 4980, 4982, 4983, 4984, 4985, 4987, 4988;
   Eigen::MatrixXd constraints(59,3);
