@@ -10,8 +10,7 @@ std::pair<Eigen::MatrixXd, double> asdap_step(const Eigen::VectorXi& constraints
 
 std::pair<Eigen::MatrixXd, double> asdap_optim(const Eigen::VectorXi& constraints_indices, double lr, ASDAPData& data, Eigen::MatrixXd& U);
 
-// TODO: change to sum of squares formulation
-double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U);
+double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U, const ENERGY type);
 
 std::pair<Eigen::MatrixXd, double> asdap_energy_gradient(const Eigen::VectorXi& constraints_indices, ASDAPData& data, const Eigen::MatrixXd& U);
 

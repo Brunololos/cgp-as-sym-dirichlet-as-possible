@@ -1,4 +1,99 @@
 #include "asdap.hpp"
+
+// Old & det formulation of the energy
+/* double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U){
+  double result = 0;
+  std::vector<std::vector<size_t>> faces = data.inputMesh->getFaceVertexList();
+
+  Eigen::MatrixXd OG = data.V;
+  Eigen::MatrixXd OP = U;
+
+  for (int i=0; i<faces.size(); i++)
+  {
+    std::vector<size_t> face = faces[i];
+
+    Eigen::Vector3d og_pointp1 = OG.row(face[1]) - OG.row(face[0]);
+    Eigen::Vector3d og_pointp2 = OG.row(face[2]) - OG.row(face[0]);
+
+    Eigen::Vector3d op_pointp1 = OP.row(face[1]) - OP.row(face[0]);
+    Eigen::Vector3d op_pointp2 = OP.row(face[2]) - OP.row(face[0]);
+
+    float og_area = og_pointp1.cross(og_pointp2).norm(); // TODO: this is double the triangle area. But we don't care much about adding an additional 1/2 factor.
+    Eigen::Vector3d lead = Eigen::Vector3d({1, 0, 0});
+    Eigen::Vector3d center = Eigen::Vector3d({0, 1, 0});
+    Eigen::Vector3d trail = Eigen::Vector3d({0, 0, 1});
+
+    // TODO: instead of constructing 3x3 matrices and determining their determinants, it might be more efficient to project the triangles into 2d space and calculate the determinants there. As we are only interested in the determinant values, we dont even care to preserve rotation or translation.
+    Eigen::Vector3d og_orthogonal = og_pointp1.cross(og_pointp2).normalized();
+    Eigen::Vector3d op_orthogonal = op_pointp1.cross(op_pointp2).normalized();
+
+    Eigen::Matrix3d Og(3, 3);
+    Eigen::Matrix3d Op(3, 3);
+    Og = og_orthogonal*lead.transpose() + og_pointp1*center.transpose() + og_pointp2*trail.transpose();
+    Op = op_orthogonal*lead.transpose() + op_pointp1*center.transpose() + op_pointp2*trail.transpose();
+
+    Eigen::Matrix3d Og_inv = Og.inverse();
+
+    Op.applyOnTheRight(Og_inv);
+    Eigen::Matrix3d T = Op;
+    Eigen::Matrix3d T_inv = T.inverse();
+
+    double det = T.determinant();
+    double det_inv = T_inv.determinant();
+
+    // TODO: add bending term
+    result += og_area*(det*det + det_inv*det_inv);
+    if (fabs(det - 1.0f) < std::numeric_limits<float>::epsilon() || fabs(det_inv - 1.0f) < std::numeric_limits<float>::epsilon()) {
+      std::cout << "found transformed triangle with det = " + std::to_string(det) +" & det_inv = " + std::to_string(det_inv) << std::endl;
+      std::cout << "Double triangle area = " + std::to_string(og_area) << std::endl;
+    }
+    //std::cout << "Intermediate ASDAP energy: " + std::to_string(result) << std::endl;
+    if ( result != result) {
+      std::cout << "Face " + std::to_string(i) + ": (original) <" + std::to_string(OG(face[0], 0)) + ", "
+                                                                  + std::to_string(OG(face[0], 1)) + ", "
+                                                                  + std::to_string(OG(face[0], 2)) + ">, "
+                                                            + "<" + std::to_string(OG(face[1], 0)) + ", "
+                                                                  + std::to_string(OG(face[1], 1)) + ", "
+                                                                  + std::to_string(OG(face[1], 2)) + ">, "
+                                                            + "<" + std::to_string(OG(face[2], 0)) + ", "
+                                                                  + std::to_string(OG(face[2], 1)) + ", "
+                                                                  + std::to_string(OG(face[2], 2)) + ">" << std::endl;
+      std::cout << "Face " + std::to_string(i) + ": (optimised) <" + std::to_string(OP(face[0], 0)) + ", "
+                                                                  + std::to_string(OP(face[0], 1)) + ", "
+                                                                  + std::to_string(OP(face[0], 2)) + ">, "
+                                                            + "<" + std::to_string(OP(face[1], 0)) + ", "
+                                                                  + std::to_string(OP(face[1], 1)) + ", "
+                                                                  + std::to_string(OP(face[1], 2)) + ">, "
+                                                            + "<" + std::to_string(OP(face[2], 0)) + ", "
+                                                                  + std::to_string(OP(face[2], 1)) + ", "
+                                                                  + std::to_string(OP(face[2], 2)) + ">" << std::endl;
+      std::cout << "og_pointp1:\n" << og_pointp1 << std::endl;
+      std::cout << "og_pointp2:\n" << og_pointp2 << std::endl;
+      std::cout << "op_pointp1:\n" << op_pointp1 << std::endl;
+      std::cout << "op_pointp2:\n" << op_pointp2 << std::endl;
+
+      std::cout << "OG, OP:" << std::endl;
+      std::cout << Og << std::endl;
+      std::cout << Op << std::endl;
+      std::cout << "OGINV:" << std::endl;
+      std::cout << Og.inverse() << std::endl;
+
+      std::cout << "T = OP x OGINV:" << std::endl;
+      std::cout << T << std::endl;
+
+      std::cout << "T det:" << std::endl;
+      std::cout << det << std::endl;
+
+      std::cout << "TINV det:" << std::endl;
+      std::cout << det_inv << std::endl;
+      std::cout << "Double triangle area = " + std::to_string(og_area) << std::endl;
+      return result;
+    }
+  }
+
+  return result;
+} */
+
 // asdap energy gradient with prints
 /*std::pair<Eigen::Vector3d, double> asdap_energy_vertex_gradient(const ASDAPData& data, const Eigen::MatrixXd& U, int vertex_idx){
   std::vector<std::vector<size_t>> faces = data.inputMesh->getFaceVertexList();
