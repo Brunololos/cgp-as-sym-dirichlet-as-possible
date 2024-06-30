@@ -9,9 +9,14 @@
 #include <igl/png/readPNG.h>
 #include <stdlib.h>
 
-// TODO: implement ASDAP
 #include "asdap.hpp"
 #include "screenshot.hpp"
+
+// TODO: move this somewhere else
+enum class ASDAP_MODE {
+  ON_INPUT,
+  EACH_FRAME
+};
 
 int main(int argc, char *argv[])
 {
@@ -33,9 +38,11 @@ int main(int argc, char *argv[])
   bool optimise = false;
 
   // ASDAP (as-symmetric-dirichlet-as-possible)
+  ASDAP_MODE optimMode = ASDAP_MODE::ON_INPUT;
+
   ASDAPData Adata;
   initMesh(V, F, Adata);
-  Eigen::MatrixXd gradients; // TODO: delete
+  Eigen::MatrixXd gradients; // TODO: delete // NOTE: Needed for gradient visualisation in case it is ever needed again
   double lr = 0.001;//0.5;//25; /* To show exploding gradients */ //0.001;  // TODO: move to Adata or ASDAP config file
   std::pair<Eigen::MatrixXd, double> result; // result of the last optimisation step
   std::ofstream logFile; // logfile
@@ -201,10 +208,10 @@ int main(int argc, char *argv[])
     constraints = igl::slice(all_constraints, bi, 1);
     // does all precomputations at once
 /*     igl::parallel_for(3, [&](const int i) {
-      asdap_precompute(bi, constraints, Adata);
+      asdap_set_constraints(bi, constraints, Adata);
       update_mesh_points(bi, constraints);
     }, 1); */
-    asdap_precompute(bi, constraints, Adata);
+    asdap_set_constraints(bi, constraints, Adata);
     update_mesh_points(bi, constraints);
     //std::cout << constraints << std::endl;
     update_points();
@@ -212,7 +219,7 @@ int main(int argc, char *argv[])
 
   viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer& viewer)->bool
   {
-    if (optimise && !Adata.hasConverged)
+    if (optimMode == ASDAP_MODE::EACH_FRAME && optimise && !Adata.hasConverged)
     {
       // TODO: commented good code, bc of debugging reasons
       std::cout << "optimisation iteration: " << Adata.iteration;
@@ -220,18 +227,13 @@ int main(int argc, char *argv[])
       double optEnergy = asdap_energy(Adata, U, ENERGY::SUMOFSQUARES);
       logFile << std::to_string(optEnergy) << "\n";
       std::cout << " => Energy: " << optEnergy << std::endl;
-/*       Sleep(1000);
-      refresh_mesh(); */
-      //std::cout << "done with sleep" << std::endl;
-      //refresh_mesh();
-      //gradients = result.first;
-      //std::cout << "--- Refreshing mesh" << std::endl;
-      if (Adata.iteration % 20 == 0)
+      //refresh_mesh_vertices();
+/*       if (Adata.iteration % 20 == 0)
       {
         //refresh_mesh();
         refresh_mesh_vertices();
         //update_edges();   // TODO: make only work, when gradients are toggled on
-      }
+      } */
     }
     if (optimise && Adata.hasConverged)
     {
@@ -269,7 +271,7 @@ int main(int argc, char *argv[])
     last_mouse = drag_mouse;
     update_points();
 /*     auto selected_constraints = igl::slice(all_constraints, selected_ids, 1);
-    asdap_precompute(selected_ids, selected_constraints, Adata);
+    asdap_set_constraints(selected_ids, selected_constraints, Adata);
     update_mesh_points(selected_ids, selected_constraints);
     refresh_mesh(); */
 /*     update_constraints();
@@ -286,26 +288,29 @@ int main(int argc, char *argv[])
     {
       case ' ':
         if (virgin) return true;
-        optimise = !optimise;
-        //asdap_optim(bi, lr, Adata, U);
-/*         result = asdap_optim(bi, lr, Adata, U);
-        gradients = result.first;
-        refresh_mesh();
-        update_edges();   // TODO: make only work, when gradients are toggled on */
+        if (Adata.hasConverged) return true;
         // step manually
-/*         asdap_step(bi, lr, Adata, U);
-        refresh_mesh(); */
-        //update_edges();
-        if (!Adata.hasConverged)
+        if (optimMode == ASDAP_MODE::ON_INPUT)
         {
+          // make gradient step
+          std::cout << "optimisation iteration: " << Adata.iteration;
+          std::pair<Eigen::MatrixXd, double> result = asdap_step(bi, lr, Adata, U);
+          gradients = result.first;
+          refresh_mesh_vertices();
+          update_edges();
+
+          // print energy
           optEnergy = asdap_energy(Adata, U, ENERGY::SUMOFSQUARES);
           logFile << std::to_string(optEnergy) << "\n";
-          std::cout << "Total ASDAP energy: " + std::to_string(optEnergy) << std::endl;
+          std::cout << " => Energy: " + std::to_string(optEnergy) << std::endl;
+          if (Adata.hasConverged)
+          {
+            std::cout << "optimisation converged!" << std::endl;
+          }
+        } else {
+          optimise = !optimise;
         }
-        if (Adata.hasConverged)
-        {
-          std::cout << "optimisation converged!" << std::endl;
-        }
+
         return true;
       case 'H': case 'h': only_visible = !only_visible; update_points(); return true;
       case 'N': case 'n':
@@ -313,6 +318,19 @@ int main(int argc, char *argv[])
         //result = asdap_energy_gradient(bi, Adata, U);
         //gradients = result.first;
         //update_edges();
+/* // calcTriangleOrientation test
+        canonT = calcTriangleOrientation(Adata.V.row(Adata.F(0, 0)), Adata.V.row(Adata.F(0, 1)), Adata.V.row(Adata.F(0, 2)));
+        printEigenMatrixXd("Canon Triangle", canonT);
+        U(3, 0) = canonT(0, 0);
+        U(3, 1) = canonT(1, 0);
+        U(3, 2) = canonT(2, 0);
+        U(4, 0) = canonT(0, 1);
+        U(4, 1) = canonT(1, 1);
+        U(4, 2) = canonT(2, 1);
+        U(5, 0) = canonT(0, 2);
+        U(5, 1) = canonT(1, 2);
+        U(5, 2) = canonT(2, 2);
+        refresh_mesh_vertices(); */
 
         std::cout << "Total ASDAP energy: " + std::to_string(asdap_energy(Adata, U, ENERGY::SUMOFSQUARES)) << std::endl;
         return true; // TODO: this is only a filthy way to quickly show the gradients // TODO: make toggle
@@ -334,11 +352,15 @@ int main(int argc, char *argv[])
         logFile.open("../logs/StressTestEnergyCurve.csv");
         logFile << std::setprecision(15);
         return true;
+      case 'J': case 'j':
+        optimMode = (optimMode == ASDAP_MODE::ON_INPUT) ? ASDAP_MODE::EACH_FRAME : ASDAP_MODE::ON_INPUT;
+        return true;
       case 'Y': case 'y':
         (logFile).close();
         return true;
       case 'C': case 'c':
         virgin = false;
+        Adata.hasConverged = false;
         constraints_mask = ((constraints_mask+selected_mask)>0).cast<int>();
         update_constraints();
         refresh_mesh();

@@ -1,4 +1,213 @@
-#include "asdap.hpp"
+#include "asdap_save.hpp"
+
+// MARK: This is a code graveyard
+
+std::pair<Eigen::Vector3d, double> asdap_energy_vertex_gradient(const ASDAPData& data, const Eigen::MatrixXd& U, int vertex_idx){
+  std::vector<std::vector<size_t>> faces = data.inputMesh->getFaceVertexList();
+  Eigen::Vector3d gradient({0, 0, 0});
+  double result_sum = 0.0;
+
+  // iterate through all incident faces
+  gcs::Vertex mesh_vertex = data.inputMesh->vertex(vertex_idx);
+  gc::NavigationSetBase<gcs::VertexAdjacentFaceNavigator> mesh_faces = mesh_vertex.adjacentFaces();
+  for (gcs::Face mesh_face : mesh_faces)
+  {
+    std::vector<size_t> face = faces[mesh_face.getIndex()];
+    Eigen::MatrixXd OG = data.V;
+    Eigen::MatrixXd OP = U;
+    Eigen::Vector3<ADDouble> vertex = ADDouble::make_active({OP(vertex_idx, 0), OP(vertex_idx, 1), OP(vertex_idx, 2)});
+
+    Eigen::Vector3d og_pointp1;
+    Eigen::Vector3d og_pointp2;
+    og_pointp1 = OG.row(face[1]) - OG.row(face[0]);
+    og_pointp2 = OG.row(face[2]) - OG.row(face[0]);
+    Eigen::Vector3<ADDouble> op_pointp1;
+    Eigen::Vector3<ADDouble> op_pointp2;
+    if (face[0] == vertex_idx)
+    {
+      op_pointp1 = Eigen::Vector3d(OP.row(face[1])) - vertex;
+      op_pointp2 = Eigen::Vector3d(OP.row(face[2])) - vertex;
+    }
+    else if (face[1] == vertex_idx)
+    {
+      op_pointp1 = vertex - Eigen::Vector3d(OP.row(face[0]));
+      op_pointp2 = Eigen::Vector3d(OP.row(face[2])) - Eigen::Vector3d(OP.row(face[0]));
+    }
+    else
+    {
+      op_pointp1 = Eigen::Vector3d(OP.row(face[1])) - Eigen::Vector3d(OP.row(face[0]));
+      op_pointp2 = vertex - Eigen::Vector3d(OP.row(face[0]));
+    }
+
+    double og_area = og_pointp1.cross(og_pointp2).norm();
+
+    Eigen::Vector2d lead = Eigen::Vector2d({1, 0});
+    Eigen::Vector2d trail = Eigen::Vector2d({0, 1});
+
+    Eigen::Vector2<ADDouble> op_lead = Eigen::Vector2<ADDouble>({1, 0});
+    Eigen::Vector2<ADDouble> op_trail = Eigen::Vector2<ADDouble>({0, 1});
+
+    double og2d_p1x = og_pointp1.norm();
+    double og2d_p2x = og_pointp1.dot(og_pointp2) / og2d_p1x;
+    double og2d_p2y = sqrt(og_pointp2.squaredNorm() - og2d_p2x * og2d_p2x);
+    Eigen::Vector2d og2d_p1 = og2d_p1x * lead;
+    Eigen::Vector2d og2d_p2 = og2d_p2x * lead + og2d_p2y * trail;
+
+    ADDouble op2d_p1x = op_pointp1.norm();
+    ADDouble op2d_p2x = op_pointp1.dot(op_pointp2) / op2d_p1x;
+    ADDouble op2d_p2y = sqrt(op_pointp2.squaredNorm() - op2d_p2x * op2d_p2x);
+    Eigen::Vector2<ADDouble> op2d_p1 = op2d_p1x * op_lead;
+    Eigen::Vector2<ADDouble> op2d_p2 = op2d_p2x * op_lead + op2d_p2y * op_trail;
+
+    Eigen::Matrix2d Og(2, 2);
+    Eigen::Matrix2<ADDouble> Op(2, 2);
+
+    Og = og2d_p1*lead.transpose() + og2d_p2*trail.transpose();
+    Op = op2d_p1*op_lead.transpose() + op2d_p2*op_trail.transpose();
+    Eigen::Matrix2d Og_inv = Og.inverse();
+
+    Eigen::Matrix2<ADDouble> saveOp = Op; // TODO: delete later ONLY USED FOR PRINTS
+    Op.applyOnTheRight(Og_inv);
+    Eigen::Matrix2<ADDouble> T = Op;
+    Eigen::Matrix2<ADDouble> T_inv = T.inverse();
+
+    // TODO: figure out solution to exploding gradients when transformation matrix T has miniscule values and thus T_inv has ginormous ones
+/*     ADDouble det = T.determinant();
+    ADDouble det_inv = T_inv.determinant(); */
+
+    ADDouble anti_sym_updownscaling = T(0,0)*T(0,0) + T(1, 1)*T(1,1);
+    ADDouble inv_anti_sym_updownscaling = T_inv(0,0)*T_inv(0,0) + T_inv(1, 1)*T_inv(1,1);
+    ADDouble anti_shearing = T(0,1)*T(0,1) + T(1, 0)*T(1,0);
+    ADDouble inv_anti_shearing = T_inv(0,1)*T_inv(0,1) + T_inv(1, 0)*T_inv(1,0);
+
+    //ADDouble determinant_energy = og_area*(det*det + det_inv*det_inv);
+    //ADDouble result = determinant_energy;
+    ADDouble result = /* og_area* */og_area*(anti_sym_updownscaling + anti_shearing + inv_anti_sym_updownscaling + inv_anti_shearing); //og_area*(det*det + det_inv*det_inv + anti_sym_updownscaling + anti_shearing);
+    Eigen::Vector3d grad = result.grad;
+    gradient += grad;
+    result_sum += result.val;
+    //gradient += det.grad;
+
+/*     if (grad.norm() > 1.0)
+    {
+      std::cout << "Found exploding gradient!" << std::endl;
+      std::cout << "------ determinant energy: (" << determinant_energy.val << ")" << std::endl;
+      std::cout << "------ anti_sym_updownscaling: (" << anti_sym_updownscaling.val << ")" << std::endl;
+      std::cout << "------ anti_shearing: (" << anti_shearing.val << ")" << std::endl;
+      std::cout << "(" << grad(0) << ", " << grad(1) << ", " << grad(2) << ")" << std::endl;
+
+      std::cout << "------ det: " << det.val << ", det_inv: " << det_inv.val << std::endl;
+
+      std::cout << "------ og_pointp1 (2D): (" << og2d_p1[0] << ", " << og2d_p1[1] << ")" << std::endl;
+      std::cout << "------ og_pointp2 (2D): (" << og2d_p2[0] << ", " << og2d_p2[1] << ")" << std::endl;
+      std::cout << "------ op_pointp1 (2D): (" << op2d_p1[0].val << ", " << op2d_p1[1].val << ")" << std::endl;
+      std::cout << "------ op_pointp2 (2D): (" << op2d_p2[0].val << ", " << op2d_p2[1].val << ")" << std::endl;
+
+      printEigenMatrixXd("Og transformation", Og);
+      printTinyADMatrix("Op transformation", saveOp);
+      printEigenMatrixXd("Og_inv transformation", Og_inv);
+      printTinyADMatrix("T transformation", T);
+      printTinyADMatrix("T_inv transformation", T_inv);
+    } */
+  }
+
+  //printEigenMatrixXd("gradient", gradient);
+  //gradient = Eigen::Vector3d({1.0 / gradient(0), 1.0 / gradient(1), 1.0 / gradient(2)});
+  //printEigenMatrixXd("gradient", gradient);
+
+  //std::cout << "Exiting gradient calculation for vertex " << vertex_idx << std::endl;
+  return std::pair<Eigen::Vector3d, double>(gradient, result_sum);
+}
+
+// Vertex based
+std::pair<Eigen::MatrixXd, double> asdap_energy_gradient(const Eigen::VectorXi& constraints_indices, ASDAPData& data, const Eigen::MatrixXd& U){
+  int UR = U.rows();
+  int UC = U.cols();
+  Eigen::MatrixXd gradients(UR, UC);
+  double energy = 0.0;
+  bool foundGradient = false;
+
+  // create isVertexConstrained lookup table for efficiency
+  std::vector<bool> isVertexConstrained = std::vector<bool>(data.V.rows());
+  for (int i=0; i<data.V.rows(); i++) { isVertexConstrained[i] = false; }
+  for (int i=0; i<constraints_indices.size(); i++) { isVertexConstrained[constraints_indices(i)] = true; }
+
+  // std::cout << "Found number of vertices: " << data.V.rows() << std::endl;
+  // iterate over all vertices // TODO: change to a face based approach (This one is performance unfriendly, because the energy for each face is calculated once for each vertex around that face.) Instead go through the faces and evaluate each face for each of its adjacent vertices at once. Then simply sum up the vertex gradients in a global gradient list (in the right entries).
+  for (int i=0; i<data.V.rows(); i++)
+  {
+    //std::cout << "------ Checking vertex" << i << std::endl;
+    // skip constrained vertices & non-changed vertices
+    // TODO: because of changed optimisation energy becomes lower (fix by always saving the last energy value for each vertex & adding it to the energy here)
+    if (isVertexConstrained[i] /* || !data.changedV[i] */) {
+      gradients(i, 0) = 0.0;
+      gradients(i, 1) = 0.0;
+      gradients(i, 2) = 0.0;
+      //std::cout << "------> vertex" << i << " is constrained or unchanged" << std::endl;
+      continue;
+    }
+
+    //std::cout << "------ Calculating gradient for vertex" << i << std::endl;
+
+    // collect the energy & gradient for each vertex
+    std::pair<Eigen::Vector3d, double> result = asdap_energy_vertex_gradient(data, U, i);
+    //std::cout << "------ aggregating gradients" << std::endl;
+    Eigen::Vector3d v_grad = result.first;
+    gradients(i, 0) = v_grad(0);
+    gradients(i, 1) = v_grad(1);
+    gradients(i, 2) = v_grad(2);
+    energy += result.second;
+
+    //std::cout << "------ does this neighbourhood remain active: ";
+    // set the vertices to changed, that were affected by this vertices change
+    if (v_grad.norm() > /* std::numeric_limits<double>::epsilon */ 0.00001)
+    {
+      //std::cout << "Yes";
+      foundGradient = true;
+      data.nextChangedV[i] = true;
+      gcs::Vertex v = data.inputMesh->vertex(i);
+      for (gcs::Vertex av : v.adjacentVertices())
+      {
+        int av_idx = av.getIndex();
+        data.nextChangedV[av_idx] = true;
+      }
+    }
+    //std::cout << std::endl;
+  }
+
+  //std::cout << "--- finished gradient calculation. Setting hasConverged = " << !foundGradient << " and changedV" << std::endl;
+  data.hasConverged = !foundGradient;
+  data.changedV = data.nextChangedV;
+  data.nextChangedV = std::vector<bool>();
+  for (int i=0; i<data.V.rows(); i++) { data.nextChangedV.push_back(false); }
+  // return the aggregate of the vertex gradients
+  return std::pair<Eigen::MatrixXd, double>(gradients, energy);
+}
+
+/* // debug print for too large gradients
+if ((select_first_point*gradient).norm() > 1.0
+|| (select_second_point*gradient).norm() > 1.0
+|| (select_third_point*gradient).norm() > 1.0)
+{
+  std::cout << "Found exploding gradient!" << std::endl;
+  //std::cout << "------ determinant energy: (" << determinant_energy.val << ")" << std::endl;
+  std::cout << "------ anti_sym_updownscaling: (" << anti_sym_updownscaling.val << ")" << std::endl;
+  std::cout << "------ anti_shearing: (" << anti_shearing.val << ")" << std::endl;
+  std::cout << "(" << gradient(0) << ", " << gradient(1) << ", " << gradient(2) << ")" << std::endl;
+
+  std::cout << "------ det: " << det.val << ", det_inv: " << det_inv.val << std::endl;
+
+  std::cout << "------ og_pointp1 (2D): (" << og2d_p1[0] << ", " << og2d_p1[1] << ")" << std::endl;
+  std::cout << "------ og_pointp2 (2D): (" << og2d_p2[0] << ", " << og2d_p2[1] << ")" << std::endl;
+  std::cout << "------ op_pointp1 (2D): (" << op2d_p1[0].val << ", " << op2d_p1[1].val << ")" << std::endl;
+  std::cout << "------ op_pointp2 (2D): (" << op2d_p2[0].val << ", " << op2d_p2[1].val << ")" << std::endl;
+
+  printEigenMatrixXd("Og transformation", Og);
+  printTinyAD9Matrix("Op transformation", saveOp);
+  printEigenMatrixXd("Og_inv transformation", Og_inv);
+  printTinyAD9Matrix("T transformation", T);
+  printTinyAD9Matrix("T_inv transformation", T_inv);
+} */
 
 // Old & det formulation of the energy
 /* double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U){

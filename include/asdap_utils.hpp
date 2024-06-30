@@ -13,8 +13,12 @@ enum class ENERGY {
     SUMOFSQUARES
 };
 
-void printEigenMatrix(std::string name, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> M);
+void printEigenMatrixXi(std::string name, Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> M);
+void printEigenMatrixXd(std::string name, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> M);
 void printTinyADMatrix(std::string name, Eigen::Matrix<ADDouble, Eigen::Dynamic, Eigen::Dynamic> M);
 void printTinyAD9Matrix(std::string name, Eigen::Matrix<ADDouble9, Eigen::Dynamic, Eigen::Dynamic> M);
+
+Eigen::Matrix3d calcTriangleOrientation(Eigen::Vector3d v0, Eigen::Vector3d v1, Eigen::Vector3d v2);
+Eigen::Matrix3<ADDouble9> calcTinyAD9TriangleOrientation(Eigen::Vector3<ADDouble9> v0, Eigen::Vector3<ADDouble9> v1, Eigen::Vector3<ADDouble9> v2);
 
 #endif

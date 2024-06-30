@@ -15,6 +15,7 @@ struct ASDAPData {
   // input (original vertices & faces)
   Eigen::Matrix<double, -1, 3> V;
   Eigen::Matrix<int, -1, 3> F;
+  std::vector<Eigen::Matrix3d> O_inv; // face orientation matrix inverses
 
   std::vector<bool> changedV;
   std::vector<bool> nextChangedV;
