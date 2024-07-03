@@ -21,6 +21,7 @@ void initMesh(const Eigen::Matrix<double, -1, 3>& V, const Eigen::Matrix<int, -1
   for (int i=0; i<V.rows(); i++) { data.changedV.push_back(false); data.nextChangedV.push_back(false); }
   data.hasConverged = false;
   data.iteration = 0;
+  data.minimumGradient = 0.00001; // Could also use std::numeric_limits<double>::epsilon
   data.inputMesh.reset(new gcs::ManifoldSurfaceMesh(F));
   data.inputGeometry.reset(new gcs::VertexPositionGeometry(*data.inputMesh, V));
   // TODO: if there are cases where the input mesh is not a triangle mesh, create an intrinsic triangulation of the input mesh (In that case remove the below test)
@@ -69,7 +70,6 @@ void asdap_set_constraints(const Eigen::VectorXi& constraints_indices, const Eig
 
 std::pair<Eigen::MatrixXd, double> asdap_step(const Eigen::VectorXi& constraints_indices, double lr, ASDAPData& data, Eigen::MatrixXd& U){
   //std::cout << "--- calculating gradient" << std::endl;
-  //std::pair<Eigen::MatrixXd, double> result = asdap_energy_gradient(constraints_indices, data, U);
   std::pair<Eigen::MatrixXd, double> result = asdap_facewise_energy_gradient(constraints_indices, data, U);
   //std::cout << "--- Making gradient step" << std::endl;
   // TODO: readd once done debugging/testing
@@ -94,8 +94,16 @@ std::pair<Eigen::MatrixXd, double> asdap_optim(const Eigen::VectorXi& constraint
   return result;
 }
 
+double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U){
+  return asdap_scaling_energy(data, U, ENERGY::SUMOFSQUARES) + asdap_local_rotation_energy(data, U);
+}
+
+std::pair<double, double> asdap_energies(const ASDAPData& data, const Eigen::MatrixXd& U){
+  return std::pair<double, double>(asdap_scaling_energy(data, U, ENERGY::SUMOFSQUARES), asdap_local_rotation_energy(data, U));
+}
+
 // NOTE: Using the determinant formulation leads to incorrect results
-double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U, const ENERGY type){
+double asdap_scaling_energy(const ASDAPData& data, const Eigen::MatrixXd& U, const ENERGY type){
   double result = 0;
   std::vector<std::vector<size_t>> faces = data.inputMesh->getFaceVertexList();
 
@@ -160,7 +168,46 @@ double asdap_energy(const ASDAPData& data, const Eigen::MatrixXd& U, const ENERG
   return result;
 }
 
-// TODO: idk what the heck is going on here. Random crashes. Can't find the source... Seems to come from the gcs data structure neighbourhood queries...
+double asdap_local_rotation_energy(const ASDAPData& data, const Eigen::MatrixXd& U){
+  double energy = 0.0;
+  for (int i=0; i<data.F.rows(); i++)
+  {
+    int face_idx = i;
+    int v0_idx = data.F(i, 0);
+    int v1_idx = data.F(i, 1);
+    int v2_idx = data.F(i, 2);
+    Eigen::Vector3d v0 = U.row(v0_idx);
+    Eigen::Vector3d v1 = U.row(v1_idx);
+    Eigen::Vector3d v2 = U.row(v2_idx);
+
+    Eigen::Matrix3d orientation = calcTriangleOrientation(v0, v1, v2);
+
+    //std::cout << "FACE: face" << face_idx << std::endl;
+    gcs::Face gcsFace = data.inputMesh->face(face_idx);
+    for (gcs::Face gcsNeighbour : gcsFace.adjacentFaces())
+    {
+      int neighbourIndex = gcsNeighbour.getIndex();
+      Eigen::Vector3i neighbour_eigen_face = data.F.row(neighbourIndex);
+      Eigen::Matrix3d neighbour_orientation = calcTriangleOrientation(U.row(neighbour_eigen_face(0)), U.row(neighbour_eigen_face(1)), U.row(neighbour_eigen_face(2)));
+
+      // calculate original rotation between adjacent faces
+      Eigen::Matrix3d og_rotation = data.O_inv[face_idx].inverse()*data.O_inv[neighbourIndex];
+      // calculate current rotation between adjacent faces
+      Eigen::Matrix3d op_rotation = orientation*neighbour_orientation.inverse();
+      // subtract current rotation between adjacent faces from original rotation between them
+      Eigen::Matrix3d rotation_diff = og_rotation - op_rotation;
+      energy += calcEigenSquaredFrobenius(rotation_diff);
+    }
+  }
+  // TODO: this was just testing if weird behaviour can be reduced by reducing the gradient
+  energy /= 2.0;
+
+  // return the aggregate of the local face rotation energy
+  return energy;
+
+}
+
+// TODO: idk what the heck is going on here. Random crashes. Can't find the source... Seems to come from the gcs data structure neighbourhood queries... (It was too much drawing for the libigl viewer to handle)
 // TODO: could change face to sport size_t indices instead of integers.
 std::pair<Eigen::Matrix3d, double> asdap_energy_face_scaling_gradients(const ASDAPData& data, const Eigen::MatrixXd& U, const std::vector<int>& face){
   //std::cout << "pre face" << std::endl;
@@ -265,7 +312,61 @@ std::pair<Eigen::Matrix3d, double> asdap_energy_face_scaling_gradients(const ASD
   return std::pair<Eigen::Matrix3d, double>(gradient, energy);
 }
 
-std::pair<Eigen::Matrix3d, double> asdap_energy_face_rotation_gradients(const ASDAPData& data, const Eigen::MatrixXd& U, const std::vector<int>& face, const int face_idx, const Eigen::Matrix3d avg_rotation)
+std::pair<Eigen::Matrix3d, double> asdap_energy_local_face_rotation_gradients(const ASDAPData& data, const Eigen::MatrixXd& U, const std::vector<int>& face, const int face_idx)
+{
+  Eigen::Matrix3d gradient;
+  double energy = 0.0;
+  ADDouble9 result = 0.0;
+
+  Eigen::VectorX<ADDouble9> verts = ADDouble9::make_active({U(face[0], 0), U(face[0], 1), U(face[0], 2), U(face[1], 0), U(face[1], 1), U(face[1], 2), U(face[2], 0), U(face[2], 1), U(face[2], 2)});
+
+  Eigen::MatrixXd select_first_point(3, 9);
+  Eigen::MatrixXd select_second_point(3, 9);
+  Eigen::MatrixXd select_third_point(3, 9);
+  select_first_point << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero();
+  select_second_point << Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero();
+  select_third_point << Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity();
+
+  Eigen::Vector3<ADDouble9> v0 = select_first_point * verts;
+  Eigen::Vector3<ADDouble9> v1 = select_second_point * verts;
+  Eigen::Vector3<ADDouble9> v2 = select_third_point * verts;
+
+  Eigen::Matrix3<ADDouble9> orientation = calcTinyAD9TriangleOrientation(v0, v1, v2);
+
+  //std::cout << "FACE: face" << face_idx << std::endl;
+  gcs::Face gcsFace = data.inputMesh->face(face_idx);
+  for (gcs::Face gcsNeighbour : gcsFace.adjacentFaces())
+  {
+    int neighbourIndex = gcsNeighbour.getIndex();
+    Eigen::Vector3i neighbour_eigen_face = data.F.row(neighbourIndex);
+    Eigen::Matrix3d neighbour_orientation = calcTriangleOrientation(U.row(neighbour_eigen_face(0)), U.row(neighbour_eigen_face(1)), U.row(neighbour_eigen_face(2)));
+
+    // calculate original rotation between adjacent faces
+    Eigen::Matrix3<ADDouble9> og_rotation = data.O_inv[face_idx].inverse()*data.O_inv[neighbourIndex];
+    // calculate current rotation between adjacent faces
+    Eigen::Matrix3<ADDouble9> op_rotation = orientation*neighbour_orientation.inverse();
+    // subtract current rotation between adjacent faces from original rotation between them
+    Eigen::Matrix3<ADDouble9> rotation_diff = og_rotation - op_rotation;
+
+    result += calcTinyAD9SquaredFrobenius(rotation_diff);
+    energy += result.val;
+
+/*     std::cout << " => neighbour: face" << neighbourIndex << " (Energy: " << result.val << ")" << std::endl;
+    printTinyAD9Matrix("og_rotation", og_rotation);
+    printTinyAD9Matrix("op_rotation", op_rotation);
+    printTinyAD9Matrix("rotation_difference", rotation_diff); */
+  }
+
+  result /= 2.0;
+  gradient << result.grad(0), result.grad(1), result.grad(2),
+              result.grad(3), result.grad(4), result.grad(5),
+              result.grad(6), result.grad(7), result.grad(8);
+
+  // return the aggregate of the vertex gradients
+  return std::pair<Eigen::Matrix3d, double>(gradient, energy);
+}
+
+std::pair<Eigen::Matrix3d, double> asdap_energy_global_face_rotation_gradients(const ASDAPData& data, const Eigen::MatrixXd& U, const std::vector<int>& face, const int face_idx, const Eigen::Matrix3d avg_rotation)
 {
   Eigen::Matrix3d gradient;
   double energy = 0.0;
@@ -288,21 +389,19 @@ std::pair<Eigen::Matrix3d, double> asdap_energy_face_rotation_gradients(const AS
   Eigen::Matrix3<ADDouble9> rotation = orientation*data.O_inv[face_idx];
 
   Eigen::Matrix3<ADDouble9> rot_diff = avg_rotation - rotation;
+  ADDouble9 result = calcTinyAD9SquaredFrobenius(rot_diff);
 
-  ADDouble9 result = rot_diff(0, 0)*rot_diff(0, 0) + rot_diff(0, 1)*rot_diff(0, 1) + rot_diff(0, 2)*rot_diff(0, 2)
-                   + rot_diff(1, 0)*rot_diff(1, 0) + rot_diff(1, 1)*rot_diff(1, 1) + rot_diff(1, 2)*rot_diff(1, 2)
-                   + rot_diff(2, 0)*rot_diff(2, 0) + rot_diff(2, 1)*rot_diff(2, 1) + rot_diff(2, 2)*rot_diff(2, 2);
-
-  energy += result.val;
+  energy = result.val;
   gradient << result.grad(0), result.grad(1), result.grad(2),
               result.grad(3), result.grad(4), result.grad(5),
               result.grad(6), result.grad(7), result.grad(8);
 
 
-/*   printEigenMatrixXd("avg_rotation", avg_rotation);
-  printEigenMatrixXd("O_inv", data.O_inv[face_idx]);
-  printTinyAD9Matrix("orientation", orientation); */
-  // TODO: set has Converged
+/*   printEigenMatrixXd("O_inv", data.O_inv[face_idx]);
+  printTinyAD9Matrix("orientation", orientation);
+  printTinyAD9Matrix("rotation", rotation);
+  printEigenMatrixXd("avg_rotation", avg_rotation);
+  printTinyAD9Matrix("rot_diff", rot_diff); */
 
   // return the aggregate of the vertex gradients
   return std::pair<Eigen::Matrix3d, double>(gradient, energy);
@@ -310,6 +409,7 @@ std::pair<Eigen::Matrix3d, double> asdap_energy_face_rotation_gradients(const AS
 
 Eigen::Matrix3d calcAvgRotation(const Eigen::VectorXi& constraints_indices, const ASDAPData& data, const Eigen::MatrixXd& U)
 {
+  // TODO: this way of averaging, does not really work
   Eigen::Matrix3d average;
   int i=0;
   for (; i<data.F.rows(); i++)
@@ -344,6 +444,7 @@ std::pair<Eigen::MatrixXd, double> asdap_facewise_energy_gradient(const Eigen::V
   for (int i=0; i<data.V.rows(); i++) { isVertexConstrained[i] = false; }
   for (int i=0; i<constraints_indices.size(); i++) { isVertexConstrained[constraints_indices(i)] = true; }
 
+  // TODO: remove, when its clear global bending term is not needed
   Eigen::Matrix3d avg_rot = calcAvgRotation(constraints_indices, data, U);
 
   // std::cout << "Found number of vertices: " << data.V.rows() << std::endl;
@@ -359,9 +460,6 @@ std::pair<Eigen::MatrixXd, double> asdap_facewise_energy_gradient(const Eigen::V
     bool skipv0 = isVertexConstrained[v0] /* || !data.changedV[v0] */;
     bool skipv1 = isVertexConstrained[v1] /* || !data.changedV[v1] */;
     bool skipv2 = isVertexConstrained[v2] /* || !data.changedV[v2] */;
-/*     if (skipv0) { gradients(v0, 0) = 0.0; gradients(v0, 1) = 0.0; gradients(v0, 2) = 0.0; }
-    if (skipv1) { gradients(v1, 0) = 0.0; gradients(v1, 1) = 0.0; gradients(v1, 2) = 0.0; }
-    if (skipv2) { gradients(v2, 0) = 0.0; gradients(v2, 1) = 0.0; gradients(v2, 2) = 0.0; } */
     if (skipv0 && skipv1 && skipv2) {
       //std::cout << "------> vertices " << v0 << ", " << v1 << ", " << v2 << " are constrained or unchanged." << std::endl;
       //std::cout << "------> skipping face" << i << std::endl;
@@ -373,58 +471,42 @@ std::pair<Eigen::MatrixXd, double> asdap_facewise_energy_gradient(const Eigen::V
     // collect the energy & gradient for each vertex of a face with respect to that face
     std::vector<int> face = std::vector<int>({v0, v1, v2});
     std::pair<Eigen::Matrix3d, double> result0 = asdap_energy_face_scaling_gradients(data, U, face);
-    std::pair<Eigen::Matrix3d, double> result1 = asdap_energy_face_rotation_gradients(data, U, face, i, avg_rot);
+    std::pair<Eigen::Matrix3d, double> result1 = asdap_energy_local_face_rotation_gradients(data, U, face, i);
     //std::cout << "Calculated gradients: (scaling) " << result0.second << ", (rotation) " << result1.second << std::endl;
     //std::cout << "------ aggregating gradients" << std::endl;
     Eigen::Vector3d v0_grad = result0.first.row(0) + result1.first.row(0);
     Eigen::Vector3d v1_grad = result0.first.row(1) + result1.first.row(1);
     Eigen::Vector3d v2_grad = result0.first.row(2) + result1.first.row(2);
+    if (v0_grad != v0_grad || v1_grad != v1_grad || v2_grad != v2_grad) {
+      std::cout << "Found NAN gradient in vertices: v" << v0 << ": " << (v0_grad != v0_grad) << ", "
+                                                   "v" << v1 << ": " << (v1_grad != v1_grad) << ", "
+                                                   "v" << v2 << ": " << (v2_grad != v2_grad) << std::endl;
+    }
     if (!skipv0) { gradients(v0, 0) += v0_grad(0); gradients(v0, 1) += v0_grad(1); gradients(v0, 2) += v0_grad(2); }
     if (!skipv1) { gradients(v1, 0) += v1_grad(0); gradients(v1, 1) += v1_grad(1); gradients(v1, 2) += v1_grad(2); }
     if (!skipv2) { gradients(v2, 0) += v2_grad(0); gradients(v2, 1) += v2_grad(1); gradients(v2, 2) += v2_grad(2); }
     energy += result0.second + result1.second;
 
     //std::cout << "------ does this neighbourhood remain active: ";
-    // set the vertices to changed, that were affected by this vertices change
-    if (v0_grad.norm() > /* std::numeric_limits<double>::epsilon */ 0.00001)
+    std::vector<Eigen::Vector3d> grads = std::vector<Eigen::Vector3d>({v0_grad, v1_grad, v2_grad});
+    for (int i=0; i<3; i++)
     {
-      //std::cout << "Yes";
-      foundGradient = true;
-      data.nextChangedV[v0] = true;
-      gcs::Vertex gcsv0 = data.inputMesh->vertex(v0);
-      for (gcs::Vertex av : gcsv0.adjacentVertices())
+      int v = face[i];
+      Eigen::Vector3d v_grad = grads[i];
+      if (v_grad.norm() > data.minimumGradient)
       {
-        int av_idx = av.getIndex();
-        data.nextChangedV[av_idx] = true;
+        //std::cout << "Yes";
+        foundGradient = true;
+        data.nextChangedV[v] = true;
+        gcs::Vertex gcsv = data.inputMesh->vertex(v);
+        for (gcs::Vertex av : gcsv.adjacentVertices())
+        {
+          int av_idx = av.getIndex();
+          data.nextChangedV[av_idx] = true;
+        }
       }
+      //std::cout << std::endl;
     }
-    //std::cout << std::endl;
-    if (v1_grad.norm() > /* std::numeric_limits<double>::epsilon */ 0.00001)
-    {
-      //std::cout << "Yes";
-      foundGradient = true;
-      data.nextChangedV[v1] = true;
-      gcs::Vertex gcsv1 = data.inputMesh->vertex(v1);
-      for (gcs::Vertex av : gcsv1.adjacentVertices())
-      {
-        int av_idx = av.getIndex();
-        data.nextChangedV[av_idx] = true;
-      }
-    }
-    //std::cout << std::endl;
-    if (v2_grad.norm() > /* std::numeric_limits<double>::epsilon */ 0.00001)
-    {
-      //std::cout << "Yes";
-      foundGradient = true;
-      data.nextChangedV[v2] = true;
-      gcs::Vertex gcsv2 = data.inputMesh->vertex(v2);
-      for (gcs::Vertex av : gcsv2.adjacentVertices())
-      {
-        int av_idx = av.getIndex();
-        data.nextChangedV[av_idx] = true;
-      }
-    }
-    //std::cout << std::endl;
   }
 
   //std::cout << "--- finished gradient calculation. Setting hasConverged = " << !foundGradient << " and changedV" << std::endl;

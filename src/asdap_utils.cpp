@@ -228,3 +228,17 @@ Eigen::Matrix3<ADDouble9> calcTinyAD9TriangleOrientation(Eigen::Vector3<ADDouble
          R20, R21, R22;
     return R;
 }
+
+double calcEigenSquaredFrobenius(Eigen::Matrix3d matrix)
+{
+  return matrix(0, 0)*matrix(0, 0) + matrix(0, 1)*matrix(0, 1) + matrix(0, 2)*matrix(0, 2)
+       + matrix(1, 0)*matrix(1, 0) + matrix(1, 1)*matrix(1, 1) + matrix(1, 2)*matrix(1, 2)
+       + matrix(2, 0)*matrix(2, 0) + matrix(2, 1)*matrix(2, 1) + matrix(2, 2)*matrix(2, 2);
+}
+
+ADDouble9 calcTinyAD9SquaredFrobenius(Eigen::Matrix3<ADDouble9> matrix)
+{
+  return matrix(0, 0)*matrix(0, 0) + matrix(0, 1)*matrix(0, 1) + matrix(0, 2)*matrix(0, 2)
+       + matrix(1, 0)*matrix(1, 0) + matrix(1, 1)*matrix(1, 1) + matrix(1, 2)*matrix(1, 2)
+       + matrix(2, 0)*matrix(2, 0) + matrix(2, 1)*matrix(2, 1) + matrix(2, 2)*matrix(2, 2);
+}

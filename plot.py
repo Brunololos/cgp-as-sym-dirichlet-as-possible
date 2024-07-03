@@ -7,13 +7,16 @@ stepsizes = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 file_name = sys.argv[1]
 if file_name.endswith(".csv"):
     #with open("logs/kNearest_runtime_percentile_step_(torus.off).csv") as fp:
-    if not file_name.find("EnergyCurve"):
-        exit(0)
+    #if not file_name.find("EnergyCurve"):
+    #    exit(0)
     name = file_name.split(".")[0]
     with open("logs/"+file_name) as fp:
         Lines = fp.readlines()
 
-    l = [float(x) for x in Lines]
+    #Lines.split(";")
+    l = [float(x.split(';')[0]) for x in Lines]
+    l1 = [float(x.split(';')[1]) for x in Lines]
+    l2 = [float(x.split(';')[2]) for x in Lines]
 
     # Data for plotting
     x = np.arange(0, len(Lines), 1)
@@ -21,6 +24,8 @@ if file_name.endswith(".csv"):
 
     fig, ax = plt.subplots(nrows=1, ncols=1)
     ax.plot(x, l)
+    ax.plot(x, l1)
+    ax.plot(x, l2)
     #ax.set_yscale("log")
     ax.set_yscale("log")
 
@@ -29,7 +34,7 @@ if file_name.endswith(".csv"):
         ylabl = "Determinant energy"
 
     ax.set(xlabel='iterations', ylabel=ylabl,
-        title='Energy curve (on QuadQuad.off)') #TODO: don't let this be hardcoded
+        title='Energy curve (on cube.off)') #TODO: don't let this be hardcoded
     #ax.grid()
 
     fig.savefig("figures/"+name+".png")

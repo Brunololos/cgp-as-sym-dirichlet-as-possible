@@ -21,4 +21,7 @@ void printTinyAD9Matrix(std::string name, Eigen::Matrix<ADDouble9, Eigen::Dynami
 Eigen::Matrix3d calcTriangleOrientation(Eigen::Vector3d v0, Eigen::Vector3d v1, Eigen::Vector3d v2);
 Eigen::Matrix3<ADDouble9> calcTinyAD9TriangleOrientation(Eigen::Vector3<ADDouble9> v0, Eigen::Vector3<ADDouble9> v1, Eigen::Vector3<ADDouble9> v2);
 
+double calcEigenSquaredFrobenius(Eigen::Matrix3d matrix);
+ADDouble9 calcTinyAD9SquaredFrobenius(Eigen::Matrix3<ADDouble9> matrix);
+
 #endif

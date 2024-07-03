@@ -8,6 +8,8 @@
 #include <igl/arap.h>
 #include <igl/png/readPNG.h>
 #include <stdlib.h>
+#include <chrono>
+#include <ctime>
 
 #include "asdap.hpp"
 #include "screenshot.hpp"
@@ -36,6 +38,7 @@ int main(int argc, char *argv[])
   bool virgin = true;
   bool view_all_points = false;
   bool optimise = false;
+  bool showGradients = false;
 
   // ASDAP (as-symmetric-dirichlet-as-possible)
   ASDAP_MODE optimMode = ASDAP_MODE::ON_INPUT;
@@ -99,40 +102,24 @@ int main(int argc, char *argv[])
   igl::AABB<Eigen::MatrixXd, 3> tree;
   tree.init(V,F);
 
+  // TODO: maybe visualise overall/scaling/bending gradient as different edges with different colors
   const auto update_edges = [&]()
   {
-/*     std::cout << "Starting update edges" << std::endl;
-    std::cout << "U rows: " << U.rows() << ", U cols: " << U.cols() << std::endl;
-    std::cout << "grad rows: " << gradients.size() << ", grad cols: " << gradients[0].size() << std::endl; */
-    //Eigen::MatrixXd grad_offset = Eigen::Map<Eigen::MatrixXd, Eigen::Unaligned>(gradients.data(), gradients.size());
     int UR = U.rows();
     int UC = U.cols();
 
-    //Eigen::MatrixXd grad_offset = Eigen::MatrixXd(UR, UC);
-    Eigen::MatrixXd grad_offset = U - gradients; // TODO: use this instead of manual looping/adding
+    Eigen::MatrixXd grad_offset = U - gradients;
     Eigen::MatrixXi E = Eigen::MatrixXi(UR, 2);
-    //std::cout << "Gradients:" << std::endl;
     for (int i = 0; i<UR; i++)
     {
-      //std::cout << gradients[i] << std::endl << std::endl;
-/*       for (int j = 0; j<3; j++)
-      {
-        grad_offset(i, j) = U(i, j) - gradients(i, j);
-      } */
-
-      //std::cout << "Adding edge (" << i << " => " << (UR + i) << ")" << std::endl;
       E(i, 0) = i;
       E(i, 1) = UR + i;
-      //std::cout << "set grad_offsets" << std::endl;
     }
     // vertical stacking
     Eigen::MatrixXd P(U.rows()+grad_offset.rows(), U.cols());
     P << U, grad_offset;
-    //std::cout << "built stacked vertex matrix P with dim: (" << P.rows() << ", " << P.cols() << ")" << std::endl;
-    //std::cout << "edge matrix E has dim: (" << E.rows() << ", " << E.cols() << ")" << std::endl;
-    //viewer.data().line_width = 2.0; // SUPPOSEDLY NOT SUPPORTED ON MAC & WINDOWS
+    //viewer.data().line_width = 2.0; // NOTE: SUPPOSEDLY NOT SUPPORTED ON MAC & WINDOWS
     viewer.data().set_edges(P, E, CM.row(4));
-    //std::cout << "Set edges" << std::endl;
   };
 
   const auto update_mesh_points = [&](Eigen::VectorXi& selected_indices, Eigen::MatrixXd& selected_constraints)
@@ -153,46 +140,38 @@ int main(int argc, char *argv[])
       //std::cout << "Set mesh point " << i << std::endl;
     }
   };
-
+  // TODO: maybe make selected points translate with vertices during optimisation
   const auto update_points = [&]()
   {
     // constrained
     viewer.data().set_points(igl::slice_mask(all_constraints, (selected_mask * constraints_mask).cast<bool>(), 1), CM.row(6));
-    viewer.data().add_points(igl::slice_mask(all_constraints, (selected_mask * (1-constraints_mask)).cast<bool>(), 1), CM.row(5));
+    viewer.data().add_points(igl::slice_mask(/* all_constraints */ U, (selected_mask * (1-constraints_mask)).cast<bool>(), 1), CM.row(5));
     viewer.data().add_points(igl::slice_mask(all_constraints, ((1-selected_mask) * constraints_mask).cast<bool>(), 1), CM.row(7));
     if (view_all_points) {
-      viewer.data().add_points(igl::slice_mask(all_constraints, ((1-selected_mask) * (1-constraints_mask)).cast<bool>(), 1), CM.row(2));
+      viewer.data().add_points(igl::slice_mask(/* all_constraints */ U, ((1-selected_mask) * (1-constraints_mask)).cast<bool>(), 1), CM.row(2));
     }
-    viewer.draw();viewer.draw(); // TODO: check if commenting this leads to any problems
   };
 
+  // update entire mesh
   auto refresh_mesh = [&](){
-    //std::cout << "refreshing mesh" << std::endl;
     viewer.data().clear();
-    //std::cout << "cleared viewer" << std::endl;
     viewer.data().set_mesh(U,F);
-    //std::cout << "set mesh" << std::endl;
     init_viewer_data();
-    //std::cout << "initialised viewer data" << std::endl;
     update_points();
-    //std::cout << "updated points" << std::endl;
+    viewer.draw();
   };
 
+  // update mesh vertices
   auto refresh_mesh_vertices = [&](){
-    //std::cout << "refreshing mesh" << std::endl;
-    //viewer.data().clear();
-    //std::cout << "cleared viewer" << std::endl;
-    viewer.data().set_vertices(U); // TODO: only use if only the vertices need to be updated
-    //std::cout << "set mesh" << std::endl;
+    viewer.data().set_vertices(U);
     init_viewer_data();
-    //std::cout << "initialised viewer data" << std::endl;
     update_points();
-    //std::cout << "updated points" << std::endl;
+    viewer.draw();
   };
 
   selection.callback = [&]()
   {
-    screen_space_selection(all_constraints, F, tree, viewer.core().view, viewer.core().proj, viewer.core().viewport, selection.L, W, and_visible);
+    screen_space_selection(/* all_constraints */ U, F, tree, viewer.core().view, viewer.core().proj, viewer.core().viewport, selection.L, W, and_visible);
     if (only_visible){
       W = (W * and_visible);
     }
@@ -200,6 +179,7 @@ int main(int argc, char *argv[])
     selected_ids = igl::slice_mask(indices, selected_mask.cast<bool>(), 1);
     selection.mode=selection.OFF;
     update_points();
+    viewer.draw();
   };
 
   auto update_constraints = [&](){
@@ -207,33 +187,30 @@ int main(int argc, char *argv[])
     bi = igl::slice_mask(indices, constraints_mask.cast<bool>(), 1);
     constraints = igl::slice(all_constraints, bi, 1);
     // does all precomputations at once
-/*     igl::parallel_for(3, [&](const int i) {
+    igl::parallel_for(3, [&](const int i) {
       asdap_set_constraints(bi, constraints, Adata);
       update_mesh_points(bi, constraints);
-    }, 1); */
-    asdap_set_constraints(bi, constraints, Adata);
-    update_mesh_points(bi, constraints);
-    //std::cout << constraints << std::endl;
+    }, 1);
     update_points();
+    viewer.draw();
   };
 
   viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer& viewer)->bool
   {
     if (optimMode == ASDAP_MODE::EACH_FRAME && optimise && !Adata.hasConverged)
     {
-      // TODO: commented good code, bc of debugging reasons
+      // Optimisation
       std::cout << "optimisation iteration: " << Adata.iteration;
       result = asdap_step(bi, lr, Adata, U);
-      double optEnergy = asdap_energy(Adata, U, ENERGY::SUMOFSQUARES);
-      logFile << std::to_string(optEnergy) << "\n";
-      std::cout << " => Energy: " << optEnergy << std::endl;
-      //refresh_mesh_vertices();
-/*       if (Adata.iteration % 20 == 0)
-      {
-        //refresh_mesh();
-        refresh_mesh_vertices();
-        //update_edges();   // TODO: make only work, when gradients are toggled on
-      } */
+      gradients = result.first;
+      std::pair<double, double> optEnergies = asdap_energies(Adata, U);
+      // logging
+      logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+      std::cout << " => Energy: " << (optEnergies.first + optEnergies.second) << " (Scaling: " << optEnergies.first << ", Rotation: " << optEnergies.second << ")" << std::endl;
+      // update viewer
+      viewer.data().set_vertices(U);
+      update_points();
+      if(showGradients) { update_edges(); }
     }
     if (optimise && Adata.hasConverged)
     {
@@ -247,11 +224,8 @@ int main(int argc, char *argv[])
   {
     translate = false;
     selection.mode=selection.OFF;
-    update_points();
     update_constraints();
-    //update_edges();
-    // TODO: make it so the gradient visualisation does not vanish on click
-    refresh_mesh();
+    refresh_mesh_vertices();
     return false;
   };
 
@@ -265,11 +239,12 @@ int main(int argc, char *argv[])
     igl::unproject(last_mouse, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
     for (size_t i = 0; i < selected_ids.size(); i++) {
       all_constraints.row(selected_ids(i)) += (drag_scene-last_scene).cast<double>();
-      //Adata.changedV[selected_ids(i)] = true;
+      Adata.changedV[selected_ids(i)] = true;
     }
     constraints = igl::slice(all_constraints, bi, 1);
     last_mouse = drag_mouse;
     update_points();
+    viewer.draw();
 /*     auto selected_constraints = igl::slice(all_constraints, selected_ids, 1);
     asdap_set_constraints(selected_ids, selected_constraints, Adata);
     update_mesh_points(selected_ids, selected_constraints);
@@ -283,7 +258,11 @@ int main(int argc, char *argv[])
 
   viewer.callback_key_pressed = [&](decltype(viewer) &,unsigned int key, int mod)
   {
-    double optEnergy;
+    std::pair<double, double> optEnergies;
+    std::pair<Eigen::MatrixXd, double> result;
+    std::chrono::system_clock::time_point timestamp;
+    std::time_t time;
+    std::string filename;
     switch(key)
     {
       case ' ':
@@ -294,15 +273,16 @@ int main(int argc, char *argv[])
         {
           // make gradient step
           std::cout << "optimisation iteration: " << Adata.iteration;
-          std::pair<Eigen::MatrixXd, double> result = asdap_step(bi, lr, Adata, U);
+          std::cout << std::endl;
+          result = asdap_step(bi, lr, Adata, U);
           gradients = result.first;
           refresh_mesh_vertices();
-          update_edges();
+          if (showGradients) { update_edges(); }
 
-          // print energy
-          optEnergy = asdap_energy(Adata, U, ENERGY::SUMOFSQUARES);
-          logFile << std::to_string(optEnergy) << "\n";
-          std::cout << " => Energy: " + std::to_string(optEnergy) << std::endl;
+          // Logging
+          optEnergies = asdap_energies(Adata, U);
+          logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+          std::cout << " => Energy: " << (optEnergies.first + optEnergies.second) << " (Scaling: " << optEnergies.first << ", Rotation: " << optEnergies.second << ")" << std::endl;
           if (Adata.hasConverged)
           {
             std::cout << "optimisation converged!" << std::endl;
@@ -310,14 +290,23 @@ int main(int argc, char *argv[])
         } else {
           optimise = !optimise;
         }
-
+        viewer.draw();
         return true;
-      case 'H': case 'h': only_visible = !only_visible; update_points(); return true;
+      case 'H': case 'h': only_visible = !only_visible; update_points(); viewer.draw(); return true;
       case 'N': case 'n':
-        //asdap_energy_face_vertex_gradients(Adata, U, std::vector<size_t>({0, 1, 2}));
-        //result = asdap_energy_gradient(bi, Adata, U);
-        //gradients = result.first;
-        //update_edges();
+        showGradients = !showGradients;
+        if (!showGradients)
+        {
+          viewer.data().clear_edges();
+          return true;
+        }
+        result = asdap_facewise_energy_gradient(bi, Adata, U);
+        gradients = result.first;
+        update_edges();
+        viewer.draw();
+        return true;
+      case 'A': case 'a':
+        // TODO: set constraint
 /* // calcTriangleOrientation test
         canonT = calcTriangleOrientation(Adata.V.row(Adata.F(0, 0)), Adata.V.row(Adata.F(0, 1)), Adata.V.row(Adata.F(0, 2)));
         printEigenMatrixXd("Canon Triangle", canonT);
@@ -331,11 +320,6 @@ int main(int argc, char *argv[])
         U(5, 1) = canonT(1, 2);
         U(5, 2) = canonT(2, 2);
         refresh_mesh_vertices(); */
-
-        std::cout << "Total ASDAP energy: " + std::to_string(asdap_energy(Adata, U, ENERGY::SUMOFSQUARES)) << std::endl;
-        return true; // TODO: this is only a filthy way to quickly show the gradients // TODO: make toggle
-      case 'A': case 'a':
-        // TODO: set constraint
         // quadQuad example
         //virgin = false;
 /*         all_constraints.row(4) = Eigen::Vector3d(0.13, 0.26, 1.2);
@@ -349,7 +333,10 @@ int main(int argc, char *argv[])
 /*         constraints_mask(1) = 1;
         update_constraints();
         refresh_mesh(); */
-        logFile.open("../logs/StressTestEnergyCurve.csv");
+        timestamp = std::chrono::system_clock::now();
+        time = std::chrono::system_clock::to_time_t(timestamp);
+        filename = "../logs/EnergyCurve" + std::to_string(time) + ".csv";
+        logFile.open(filename);
         logFile << std::setprecision(15);
         return true;
       case 'J': case 'j':
@@ -419,10 +406,12 @@ int main(int argc, char *argv[])
         selected_mask = selected_mask*constraints_mask;
         selected_ids = igl::slice_mask(indices, selected_mask.cast<bool>(), 1);
         update_points();
+        viewer.draw();
         return true;
       case 'P': case 'p':
         view_all_points = !view_all_points;
         update_points();
+        viewer.draw();
         return true;
       case 'X': case 'x':
         if (virgin) return true;
