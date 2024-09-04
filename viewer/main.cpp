@@ -36,6 +36,7 @@ int main(int argc, char *argv[])
   // settings
   int mode = 0;
   bool virgin = true;
+  bool view_constraints = true;
   bool view_all_points = false;
   bool optimise = false;
   bool showGradients = false;
@@ -45,10 +46,11 @@ int main(int argc, char *argv[])
 
   ASDAPData Adata;
   initMesh(V, F, Adata);
-  Eigen::MatrixXd gradients; // TODO: delete // NOTE: Needed for gradient visualisation in case it is ever needed again
-  double lr = 0.001;//0.5;//25; /* To show exploding gradients */ //0.001;  // TODO: move to Adata or ASDAP config file
+  Eigen::MatrixXd gradients;
+  double lr = 0.005;
   std::pair<Eigen::MatrixXd, double> result; // result of the last optimisation step
   std::ofstream logFile; // logfile
+  bool doLogging = false;
 
   // Viewer
   igl::opengl::glfw::Viewer viewer;
@@ -83,6 +85,7 @@ int main(int argc, char *argv[])
 
   // Selection
   bool translate = false;
+  RAXIS rot_axis = RAXIS::YAW;
   bool only_visible = false;
   igl::opengl::glfw::imgui::SelectionWidget selection;
   Eigen::Array<double,Eigen::Dynamic,1> W = Eigen::Array<double,Eigen::Dynamic,1>::Zero(V.rows());
@@ -140,13 +143,17 @@ int main(int argc, char *argv[])
       //std::cout << "Set mesh point " << i << std::endl;
     }
   };
+
   // TODO: maybe make selected points translate with vertices during optimisation
   const auto update_points = [&]()
   {
     // constrained
-    viewer.data().set_points(igl::slice_mask(all_constraints, (selected_mask * constraints_mask).cast<bool>(), 1), CM.row(6));
-    viewer.data().add_points(igl::slice_mask(/* all_constraints */ U, (selected_mask * (1-constraints_mask)).cast<bool>(), 1), CM.row(5));
-    viewer.data().add_points(igl::slice_mask(all_constraints, ((1-selected_mask) * constraints_mask).cast<bool>(), 1), CM.row(7));
+    viewer.data().clear_points();
+    if (view_constraints || view_all_points) {
+      viewer.data().set_points(igl::slice_mask(all_constraints, (selected_mask * constraints_mask).cast<bool>(), 1), CM.row(6));
+      viewer.data().add_points(igl::slice_mask(/* all_constraints */ U, (selected_mask * (1-constraints_mask)).cast<bool>(), 1), CM.row(5));
+      viewer.data().add_points(igl::slice_mask(all_constraints, ((1-selected_mask) * constraints_mask).cast<bool>(), 1), CM.row(7));
+    }
     if (view_all_points) {
       viewer.data().add_points(igl::slice_mask(/* all_constraints */ U, ((1-selected_mask) * (1-constraints_mask)).cast<bool>(), 1), CM.row(2));
     }
@@ -182,7 +189,7 @@ int main(int argc, char *argv[])
     viewer.draw();
   };
 
-  auto update_constraints = [&](){
+  auto update_constraints = [&](bool draw){
     if (virgin) return;
     bi = igl::slice_mask(indices, constraints_mask.cast<bool>(), 1);
     constraints = igl::slice(all_constraints, bi, 1);
@@ -192,7 +199,7 @@ int main(int argc, char *argv[])
       update_mesh_points(bi, constraints);
     }, 1);
     update_points();
-    viewer.draw();
+    if(draw) { viewer.draw(); }
   };
 
   viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer& viewer)->bool
@@ -205,7 +212,10 @@ int main(int argc, char *argv[])
       gradients = result.first;
       std::pair<double, double> optEnergies = asdap_energies(Adata, U);
       // logging
-      logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+      if (doLogging)
+      {
+        logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+      }
       std::cout << " => Energy: " << (optEnergies.first + optEnergies.second) << " (Scaling: " << optEnergies.first << ", Rotation: " << optEnergies.second << ")" << std::endl;
       // update viewer
       viewer.data().set_vertices(U);
@@ -214,6 +224,7 @@ int main(int argc, char *argv[])
     }
     if (optimise && Adata.hasConverged)
     {
+      if (doLogging) { (logFile).close(); doLogging = false; }
       std::cout << "optimisation converged!" << std::endl;
       optimise = false;
     }
@@ -224,7 +235,7 @@ int main(int argc, char *argv[])
   {
     translate = false;
     selection.mode=selection.OFF;
-    update_constraints();
+    update_constraints(true);
     refresh_mesh_vertices();
     return false;
   };
@@ -263,6 +274,9 @@ int main(int argc, char *argv[])
     std::chrono::system_clock::time_point timestamp;
     std::time_t time;
     std::string filename;
+    double theta = 0;
+    double U22, U21;
+
     switch(key)
     {
       case ' ':
@@ -273,7 +287,6 @@ int main(int argc, char *argv[])
         {
           // make gradient step
           std::cout << "optimisation iteration: " << Adata.iteration;
-          std::cout << std::endl;
           result = asdap_step(bi, lr, Adata, U);
           gradients = result.first;
           refresh_mesh_vertices();
@@ -281,10 +294,14 @@ int main(int argc, char *argv[])
 
           // Logging
           optEnergies = asdap_energies(Adata, U);
-          logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+          if(doLogging)
+          {
+            logFile << std::to_string(optEnergies.first + optEnergies.second) << ";" << std::to_string(optEnergies.first) << ";" << std::to_string(optEnergies.second) << "\n";
+          }
           std::cout << " => Energy: " << (optEnergies.first + optEnergies.second) << " (Scaling: " << optEnergies.first << ", Rotation: " << optEnergies.second << ")" << std::endl;
           if (Adata.hasConverged)
           {
+            if (doLogging) { (logFile).close(); doLogging = false; }
             std::cout << "optimisation converged!" << std::endl;
           }
         } else {
@@ -306,38 +323,318 @@ int main(int argc, char *argv[])
         viewer.draw();
         return true;
       case 'A': case 'a':
-        // TODO: set constraint
-/* // calcTriangleOrientation test
-        canonT = calcTriangleOrientation(Adata.V.row(Adata.F(0, 0)), Adata.V.row(Adata.F(0, 1)), Adata.V.row(Adata.F(0, 2)));
-        printEigenMatrixXd("Canon Triangle", canonT);
-        U(3, 0) = canonT(0, 0);
-        U(3, 1) = canonT(1, 0);
-        U(3, 2) = canonT(2, 0);
-        U(4, 0) = canonT(0, 1);
-        U(4, 1) = canonT(1, 1);
-        U(4, 2) = canonT(2, 1);
-        U(5, 0) = canonT(0, 2);
-        U(5, 1) = canonT(1, 2);
-        U(5, 2) = canonT(2, 2);
-        refresh_mesh_vertices(); */
-        // quadQuad example
-        //virgin = false;
-/*         all_constraints.row(4) = Eigen::Vector3d(0.13, 0.26, 1.2);
+        if (doLogging)
+        {
+          (logFile).close();
+        }
+        else
+        {
+          doLogging = true;
+          timestamp = std::chrono::system_clock::now();
+          time = std::chrono::system_clock::to_time_t(timestamp);
+          filename = "../logs/EnergyCurve" + std::to_string(time) + ".csv";
+          logFile.open(filename);
+          logFile << std::setprecision(15);
+        }
+        return true;
+      case 'W': case 'w':
+/*         // circular deformation
+        for (int i = 0; i < U.rows(); i++)
+        {
+          double angle = U.row(i).norm() * 2.0 * 3.14159265 / 10;
+          double x = cos(angle)*U(i, 0) - sin(angle)*U(i, 1);
+          double y = sin(angle)*U(i, 0) + cos(angle)*U(i, 1);
+          U(i, 0) = x;
+          U(i, 1) = y;
+        }
+        // y rotation
+        for (int i = 0; i < U.rows(); i++)
+        {
+          double yrangle = (5.0/360.0) * 2.0 * 3.14159265;
+          double x1 = cos(yrangle)*U(i, 0) + sin(yrangle)*U(i, 2);
+          double z1 = - sin(yrangle)*U(i, 0) + cos(yrangle)*U(i, 2);
+          U(i, 0) = x1;
+          U(i, 2) = z1;
+        } */
+
+/*        // scale ASDAP down in-place
+        for (int i = 0; i < U.rows(); i++)
+        {
+          if (i < 30)
+          {
+            U(i, 0) = (U(i, 0) + 10) / 2.0 - 10;
+            U(i, 1) = (U(i, 1) - 2.5) / 2.0 + 2.5;
+            U(i, 2) = (U(i, 2) - 0.5) / 2.0 + 0.5;
+          }
+          else if (i < 54)
+          {
+            U(i, 0) = (U(i, 0) + 6) / 2.0 - 6;
+            U(i, 1) = (U(i, 1) - 2.5) / 2.0 + 2.5;
+            U(i, 2) = (U(i, 2) - 0.5) / 2.0 + 0.5;
+          }
+          else if (i < 78)
+          {
+            U(i, 0) = (U(i, 0) + 2) / 2.0 - 2;
+            U(i, 1) = (U(i, 1) - 2.5) / 2.0 + 2.5;
+            U(i, 2) = (U(i, 2) - 0.5) / 2.0 + 0.5;
+          }
+          else if (i < 108)
+          {
+            U(i, 0) = (U(i, 0) - 2) / 2.0 + 2;
+            U(i, 1) = (U(i, 1) - 2.5) / 2.0 + 2.5;
+            U(i, 2) = (U(i, 2) - 0.5) / 2.0 + 0.5;
+          }
+          else
+          {
+            U(i, 0) = (U(i, 0) - 6) / 2.0 + 6;
+            U(i, 1) = (U(i, 1) - 2.5) / 2.0 + 2.5;
+            U(i, 2) = (U(i, 2) - 0.5) / 2.0 + 0.5;
+          }
+        } */
+
+/*         theta = (5.0 / 360.0) * 2.0 * 3.14159265;
+        for (int i = 0; i < U.rows(); i++)
+        {
+          int j = 0;
+          if (i < 30)
+          {
+            if (i != 0 && i != 1 && i != 2 && i != 3
+              && i != 4 && i != 5 && i != 6 && i != 7
+              && i != 8 && i != 9 && i != 10 && i != 11
+              && i != 12 && i != 13 && i != 14) { continue; }
+            double u0 = U(i, 0) + 10;
+            double u2 = U(i, 2) - 0.5;
+            double x1 = cos(theta)*u0 + sin(theta)*u2;
+            double z1 = - sin(theta)*u0 + cos(theta)*u2;
+            U(i, 0) = x1 - 10;
+            U(i, 2) = z1 + 0.5;
+          }
+          else if (i < 54)
+          {
+            j = i - 30;
+            if (j != 0 && j != 1 && j != 2 && j != 3
+              && j != 4 && j != 5 && j != 6 && j != 7
+              && j != 8 && j != 9 && j != 10 && j != 11) { continue; }
+            double u0 = U(i, 0) + 6;
+            double u2 = U(i, 2) - 0.5;
+            double x1 = cos(theta)*u0 + sin(theta)*u2;
+            double z1 = - sin(theta)*u0 + cos(theta)*u2;
+            U(i, 0) = x1 - 6;
+            U(i, 2) = z1 + 0.5;
+          }
+          else if (i < 78)
+          {
+            j = i - 54;
+            if (j != 0 && j != 1 && j != 2 && j != 3
+              && j != 4 && j != 5 && j != 6 && j != 7
+              && j != 8 && j != 9 && j != 10 && j != 11) { continue; }
+            double u0 = U(i, 0) + 2;
+            double u2 = U(i, 2) - 0.5;
+            double x1 = cos(theta)*u0 + sin(theta)*u2;
+            double z1 = - sin(theta)*u0 + cos(theta)*u2;
+            U(i, 0) = x1 - 2;
+            U(i, 2) = z1 + 0.5;
+          }
+          else if (i < 108)
+          {
+            if (i != 78 && i != 79 && i != 80 && i != 81
+              && i != 82 && i != 83 && i != 84 && i != 85
+              && i != 86 && i != 87 && i != 88 && i != 89
+              && i != 90 && i != 91 && i != 92) { continue; }
+            double u0 = U(i, 0) - 2;
+            double u2 = U(i, 2) - 0.5;
+            double x1 = cos(theta)*u0 + sin(theta)*u2;
+            double z1 = - sin(theta)*u0 + cos(theta)*u2;
+            U(i, 0) = x1 + 2;
+            U(i, 2) = z1 + 0.5;
+          }
+          else
+          {
+            j = i - 108;
+            if (j != 0 && j != 1 && j != 2 && j != 3
+              && j != 4 && j != 5 && j != 6 && j != 7
+              && j != 8 && j != 9 && j != 10 && j != 11
+              && j != 12 && j != 26) { continue; }
+            double u0 = U(i, 0) - 6;
+            double u2 = U(i, 2) - 0.5;
+            double x1 = cos(theta)*u0 + sin(theta)*u2;
+            double z1 = - sin(theta)*u0 + cos(theta)*u2;
+            U(i, 0) = x1 + 6;
+            U(i, 2) = z1 + 0.5;
+          }
+        } */
+/*         for (int i=0; i<U.rows(); i++)
+        {
+          // if (i != 916 && i != 482 && i != 481 && i != 95
+          // && i != 94 && i != 671 && i != 670 && i != 32
+          // && i != 31 && i != 239 && i != 238 && i != 176
+          // && i != 175 && i != 752 && i != 751 && i != 5
+          // && i != 4 && i != 563 && i != 562 && i != 68 && i != 67
+          // && i != 644 && i != 643 && i != 41 && i != 40
+          // && i != 212 && i != 211 && i != 185 && i != 184
+          // && i != 761 && i != 760 && i != 2 && i != 1
+          // && i != 961 && i != 962 && i != 956 && i != 957
+          // && i != 966 && i != 967 && i != 968 && i != 969
+          // && i != 936 && i != 937 && i != 932 && i != 933
+          // && i != 944 && i != 945 && i != 941 && i != 942
+          // && i != 1015 && i != 1016 && i != 1012 && i != 1013
+          // && i != 1020 && i != 1021 && i != 1022 && i != 1023
+          // && i != 996 && i != 997 && i != 992 && i != 993
+          // && i != 1001 && i != 1002 && i != 1004 && i != 1005
+          // && i != 1088)
+          // { continue; }
+          double yrangle = (45.0/360.0) * 2.0 * 3.14159265;
+          double x1 = cos(yrangle)*U(i, 0) + sin(yrangle)*U(i, 2);
+          double z1 = - sin(yrangle)*U(i, 0) + cos(yrangle)*U(i, 2);
+          U(i, 0) = x1 + 0.2;
+          U(i, 2) = z1 + 2.0;
+          U(i, 1) = U(i, 1) * (2.0 / 3.0);
+        }
+        constraints_mask(916) = 1;
+        constraints_mask(482) = 1;
+        constraints_mask(481) = 1;
+        constraints_mask(95) = 1;
+        constraints_mask(94) = 1;
+        constraints_mask(671) = 1;
+        constraints_mask(670) = 1;
+        constraints_mask(32) = 1;
+        constraints_mask(31) = 1;
+        constraints_mask(239) = 1;
+        constraints_mask(238) = 1;
+        constraints_mask(176) = 1;
+        constraints_mask(175) = 1;
+        constraints_mask(752) = 1;
+        constraints_mask(751) = 1;
+        constraints_mask(5) = 1;
         constraints_mask(4) = 1;
-        update_constraints();
-        refresh_mesh(); */
-        // Triangle divergence
-        //all_constraints.row(1) = Eigen::Vector3d(3.999, 4, 0);
-        //all_constraints.row(1) = Eigen::Vector3d(0.26, 0.25, 0);
-        //all_constraints.row(1) = Eigen::Vector3d(1.1, 1, 0);
-/*         constraints_mask(1) = 1;
-        update_constraints();
-        refresh_mesh(); */
-        timestamp = std::chrono::system_clock::now();
-        time = std::chrono::system_clock::to_time_t(timestamp);
-        filename = "../logs/EnergyCurve" + std::to_string(time) + ".csv";
-        logFile.open(filename);
-        logFile << std::setprecision(15);
+        constraints_mask(563) = 1;
+        constraints_mask(562) = 1;
+        constraints_mask(68) = 1;
+        constraints_mask(67) = 1;
+        constraints_mask(644) = 1;
+        constraints_mask(643) = 1;
+        constraints_mask(41) = 1;
+        constraints_mask(40) = 1;
+        constraints_mask(212) = 1;
+        constraints_mask(211) = 1;
+        constraints_mask(185) = 1;
+        constraints_mask(184) = 1;
+        constraints_mask(761) = 1;
+        constraints_mask(760) = 1;
+        constraints_mask(2) = 1;
+        constraints_mask(1) = 1;
+        constraints_mask(961) = 1;
+        constraints_mask(962) = 1;
+        constraints_mask(956) = 1;
+        constraints_mask(957) = 1;
+        constraints_mask(968) = 1;
+        constraints_mask(969) = 1;
+        constraints_mask(966) = 1;
+        constraints_mask(967) = 1;
+        constraints_mask(936) = 1;
+        constraints_mask(937) = 1;
+        constraints_mask(932) = 1;
+        constraints_mask(933) = 1;
+        constraints_mask(944) = 1;
+        constraints_mask(945) = 1;
+        constraints_mask(941) = 1;
+        constraints_mask(942) = 1;
+        constraints_mask(1015) = 1;
+        constraints_mask(1016) = 1;
+        constraints_mask(1012) = 1;
+        constraints_mask(1013) = 1;
+        constraints_mask(1022) = 1;
+        constraints_mask(1023) = 1;
+        constraints_mask(1020) = 1;
+        constraints_mask(1021) = 1;
+        constraints_mask(996) = 1;
+        constraints_mask(997) = 1;
+        constraints_mask(992) = 1;
+        constraints_mask(993) = 1;
+        constraints_mask(1004) = 1;
+        constraints_mask(1005) = 1;
+        constraints_mask(1001) = 1;
+        constraints_mask(1002) = 1;
+        constraints_mask(1088) = 1; */
+
+        // x rotation
+/*         for (int i = 0; i < U.rows(); i++)
+        {
+          double xrangle = (135.0/360.0) * 2.0 * 3.14159265;
+          double y2 = cos(xrangle)*U(i, 1) - sin(xrangle)*U(i, 2);
+          double z2 = - sin(xrangle)*U(i, 0) + cos(xrangle)*U(i, 2);
+          U(i, 1) = y2;
+          U(i, 2) = z2;
+        } */
+        // fold triangle slant
+        /* U(2, 2) = 0;
+        U(2, 1) = -1; */
+
+/*         // unfold triangle slant
+        U(2, 2) = 1;
+        U(2, 1) = 0; */
+
+/*         // flip angled triangle slant
+        U(2, 2) = -1;
+        U(2, 1) = 0; */
+
+/*         // unfold angled triangle slant
+        U(2, 2) = 0;
+        U(2, 1) = -1; */
+
+        // fold angled triangle slant
+        theta = 15.0 * M_PI / 180.0;
+        // U(2, 2) = 0;
+        // U(2, 1) = -1;
+        U22 = U(2, 2);
+        U21 = U(2, 1);
+        U(2, 2) = sin(theta)*U21 + cos(theta)*U22;
+        U(2, 1) = cos(theta)*U21 - sin(theta)*U22;
+        constraints_mask(0) = 1;
+        constraints_mask(1) = 1;
+
+/*         // hourglass
+        for (int i=2; i<4; i++)
+        {
+          U(i, 0) = -1 * U(i, 0);
+          U(i, 2) = -1 * U(i, 2);
+
+          U(i+4, 0) = -1 * U(i+4, 0);
+          U(i+4, 2) = -1 * U(i+4, 2);
+        } */
+
+        virgin = false;
+        // constraints_mask(0) = 1;
+        // constraints_mask(2) = 1;
+        // constraints_mask(8) = 1;
+        // constraints_mask(9) = 1;
+        // constraints_mask(10) = 1;
+        // constraints_mask(11) = 1;
+        // constraints_mask(12) = 1;
+        // constraints_mask(13) = 1;
+        // constraints_mask(14) = 1;
+        // constraints_mask(15) = 1;
+        // constraints_mask(16) = 1;
+        // constraints_mask(17) = 1;
+        all_constraints = U;
+        //update_points();
+        update_constraints(true);
+        refresh_mesh_vertices();
+        return true;
+      case 'E': case 'e':
+        // fold angled triangle slant
+        theta = -15.0 * M_PI / 180.0;
+        U22 = U(2, 2);
+        U21 = U(2, 1);
+        U(2, 2) = sin(theta)*U21 + cos(theta)*U22;
+        U(2, 1) = cos(theta)*U21 - sin(theta)*U22;
+        constraints_mask(0) = 1;
+        constraints_mask(1) = 1;
+
+        virgin = false;
+        all_constraints = U;
+        update_constraints(true);
+        refresh_mesh_vertices();
         return true;
       case 'J': case 'j':
         optimMode = (optimMode == ASDAP_MODE::ON_INPUT) ? ASDAP_MODE::EACH_FRAME : ASDAP_MODE::ON_INPUT;
@@ -349,7 +646,7 @@ int main(int argc, char *argv[])
         virgin = false;
         Adata.hasConverged = false;
         constraints_mask = ((constraints_mask+selected_mask)>0).cast<int>();
-        update_constraints();
+        update_constraints(true);
         refresh_mesh();
         // std::cout << constraints << "\n\n\n";
         // std::cout << bi << "\n\n\n";
@@ -360,20 +657,28 @@ int main(int argc, char *argv[])
           virgin = true;
           return true;
         }
-        update_constraints();
+        update_constraints(true);
         return true;
       case 'G': case 'g':
         if (virgin) return true;
         translate = !translate;
         {
           Eigen::MatrixXd CP;
-          //Eigen::Vector3d mean = constraints.rowwise().mean();
-          Eigen::Vector3d mean = constraints.colwise().mean(); // TODO: changed to colwise from rowwise, Is that alright?
+          Eigen::Vector3d mean = constraints.colwise().mean();
           igl::project(mean, viewer.core().view, viewer.core().proj, viewer.core().viewport, CP);
           last_mouse = Eigen::RowVector3f(viewer.current_mouse_x, viewer.core().viewport(3) - viewer.current_mouse_y, CP(0,2));
-          update_constraints();
+          update_constraints(true);
         }
         return true;
+      case 'D': case 'd':
+        if (virgin) return true;
+        selected_mask = (W.abs()>0.5).cast<int>();
+        selected_ids = igl::slice_mask(indices, selected_mask.cast<bool>(), 1);
+        U = rotate_selected(U, selected_ids, rot_axis, 10.0);
+        all_constraints = U;
+        update_constraints(true);
+        refresh_mesh_vertices();
+        break;
       case 'K': case 'k':
         selection.mode = selection.RECTANGULAR_MARQUEE;
         selection.clear();
@@ -413,6 +718,27 @@ int main(int argc, char *argv[])
         update_points();
         viewer.draw();
         return true;
+      case '.':
+        view_constraints = !view_constraints;
+        if (!view_constraints) { view_all_points = false; }
+        update_points();
+        viewer.draw();
+        return true;
+      case '-':
+        switch(rot_axis)
+        {
+          default:
+          case RAXIS::ROLL:
+            rot_axis = RAXIS::YAW;
+            break;
+          case RAXIS::YAW:
+            rot_axis = RAXIS::PITCH;
+            break;
+          case RAXIS::PITCH:
+            rot_axis = RAXIS::ROLL;
+            break;
+        }
+        return true;
       case 'X': case 'x':
         if (virgin) return true;
         // reset constrainted positions of selected
@@ -420,7 +746,7 @@ int main(int argc, char *argv[])
           if (selected_mask(i))
             all_constraints.row(i) = V.row(i);
         }
-        update_constraints();
+        update_constraints(true);
         return true;
       case 'Q': case 'q':
         std::vector<Eigen::VectorXd> points;
@@ -452,6 +778,9 @@ int main(int argc, char *argv[])
 
 ASDAP Usage:
   [space]  Run one ASDAP Step (hold for animation)
+  J,j      Toggle single Step/continual optimization (changes [space] behaviour)
+  N,n      Toggle gradient visibility
+  A,a      Toggle ASDAP energy logging
   R,r      Reset mesh position
 
   H,h      Toggle whether to take visibility into account for selection
@@ -462,7 +791,10 @@ ASDAP Usage:
 
   X,x      Reset constrain position of selected vertices
   G,g      Move selection
-  P,p      View unconstrained point positions
+  D,d      Rotate selection
+  P,p      View all point positions
+  .        View constrained point positions
+  -        Toggle rotation axis (Yaw -> Pitch -> Roll)
 
   S,s      Make screenshot
 )";

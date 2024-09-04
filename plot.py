@@ -26,6 +26,7 @@ if file_name.endswith(".csv"):
     ax.plot(x, l)
     ax.plot(x, l1)
     ax.plot(x, l2)
+   
     #ax.set_yscale("log")
     ax.set_yscale("log")
 

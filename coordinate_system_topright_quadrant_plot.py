@@ -1,11 +1,22 @@
 import numpy as np                 # v 1.19.2
 import matplotlib.pyplot as plt    # v 3.3.2
 
+# Enter rotation angles (- negative sign means clockwise rotation)
+angle1 = - (10 / 360) * 2*np.pi
+angle2 = - (12 / 360) * 2*np.pi
 # Enter x and y coordinates of points and colors
-""" xs = [0, 2, 5]
-ys = [0, 3, 0] """
-xs = [0, 3, 4]
-ys = [0, 4, 0]
+xs1 = [0, 2, 5]
+ys1 = [0, 3, 0]
+xs2 = [0, 3, 4]
+ys2 = [0, 4, 0]
+#xs1r = [xs1[0] * 0.000973792 + xs1[1] * (-0.182327) + xs1[2] * 0.983237, xs1[0] * 0.979295 + xs1[1] * (-0.198866) + xs1[2] * (-0.0378462), xs1[0] * 0.202433 + xs1[1] * 0.962917 + xs1[2] * 0.1783237]
+#ys1r = [ys1[0] * 0.000973792 + ys1[1] * (-0.182327) + ys1[2] * 0.983237, ys1[0] * 0.979295 + ys1[1] * (-0.198866) + ys1[2] * (-0.0378462), ys1[0] * 0.202433 + ys1[1] * 0.962917 + ys1[2] * 0.1783237]
+xs1r = [xs1[0]*np.cos(angle1) - ys1[0]*np.sin(angle1), xs1[1]*np.cos(angle1) - ys1[1]*np.sin(angle1), xs1[2]*np.cos(angle1) - ys1[2]*np.sin(angle1)]
+ys1r = [xs1[0]*np.sin(angle1) + ys1[0]*np.cos(angle1), xs1[1]*np.sin(angle1) + ys1[1]*np.cos(angle1), xs1[2]*np.sin(angle1) + ys1[2]*np.cos(angle1)]
+# xs1r = [xs1[0]*np.cos(angle1) - ys1[0]*np.sin(angle1), xs1[2]*np.cos(angle1) - ys1[2]*np.sin(angle1), xs1[1]*np.cos(angle1) - ys1[1]*np.sin(angle1)]
+# ys1r = [xs1[0]*np.sin(angle1) + ys1[0]*np.cos(angle1), xs1[2]*np.sin(angle1) + ys1[2]*np.cos(angle1), xs1[1]*np.sin(angle1) + ys1[1]*np.cos(angle1)]
+xs2r = [xs2[0]*np.cos(angle2) - ys2[0]*np.sin(angle2), xs2[1]*np.cos(angle2) - ys2[1]*np.sin(angle2), xs2[2]*np.cos(angle2) - ys2[2]*np.sin(angle2)]
+ys2r = [xs2[0]*np.sin(angle2) + ys2[0]*np.cos(angle2), xs2[1]*np.sin(angle2) + ys2[1]*np.cos(angle2), xs2[2]*np.sin(angle2) + ys2[2]*np.cos(angle2)]
 colors = ['m', 'g', 'r', 'b']
 
 # Select length of axes and the space between tick labels
@@ -15,7 +26,8 @@ ticks_frequency = 1
 # Plot points
 fig, ax = plt.subplots(figsize=(10, 10))
 #ax.scatter(xs, ys, c=colors)
-ax.fill(xs, ys, facecolor='none', edgecolor='blue', linewidth=2)
+ax.fill(xs1r, ys1r, facecolor='none', edgecolor='blue', ls='-', linewidth=2)
+ax.fill(xs2r, ys2r, facecolor='none', edgecolor='blue', ls='--', linewidth=2)
 
 # Draw lines connecting points to axes
 """ for x, y, c in zip(xs, ys, colors):
@@ -57,4 +69,4 @@ ax.plot((1), (0), marker='>', transform=ax.get_yaxis_transform(), **arrow_fmt)
 ax.plot((0), (1), marker='^', transform=ax.get_xaxis_transform(), **arrow_fmt)
 
 plt.show()
-fig.savefig("figures/coordsys_triangle2.png")
+fig.savefig("figures/coordsys_rot_triangle2svd.png")
