@@ -1,0 +1,348 @@
+<!doctype html><html class="no-js"><head><meta charset="utf-8"><title>Shape Modeling by minimizing Symmetric Dirichlet</title><meta name="description" content=""><meta name="viewport" content="width=device-width">
+<!-- Place favicon.ico and apple-touch-icon.png in the root directory -->
+<link href="http://fonts.googleapis.com/css?family=Raleway:300,400,600" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" type="text/css" href="style.css">
+        <script type="text/javascript" async
+  src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+        <!--<link rel="stylesheet" href="styles/main.37ab405b.css">-->
+<body>
+<!--[if lt IE 7]>
+<p class="browsehappy">You are using an
+    <strong>outdated</strong> browser. Please
+    <a href="http://browsehappy.com/">upgrade your browser</a> to improve your experience.
+</p>
+<![endif]-->
+<div class="container">
+
+    <nav class="navbar">
+        <div class="container">
+            <ul class="navbar-list">
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#intro">Intro</a>
+                </li>
+<!--                 <li class="navbar-item">
+                    <a class="navbar-link" href="#related work">Related Work</a>
+                </li> -->
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#motivation">Motivation</a>
+                </li>
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#asdap">ASDAP</a>
+                </li>
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#implementation">Implementation</a>
+                </li>
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#results">Results</a>
+                </li>
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#acknowledgements">Acknowledgements</a>
+                </li>
+                <li class="navbar-item">
+                    <a class="navbar-link" href="#references">References</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <section class="header" id="intro">
+        <h2 class="title">Shape Modeling by minimizing Symmetric Dirichlet</h2>
+        <h6>Project by Andreas Paul Bruno Lönne (<a href="mailto:loenne@campus.tu-berlin.de">loenne@campus.tu-berlin.de</a>)
+        </h6>
+
+        <div class="row">
+            <video class="u-max-full-width" autoplay loop muted>
+                <source src="videos/ASDAP.mp4" type="video/mp4">
+            </video>
+            <p>
+                How to model physically plausible and intuitive shape deformation is an ongoing field of research in the discipline of computer graphics. 
+                The applications of shape deformation in modeling, animation, and image manipulation stimulate research and invention, while the breadth of the problems applications with varying requirements leaves room for numerous different approaches. 
+                So it is not surprising that there are a wide variety of deformation techniques, one of which we will briefly discuss.
+                In this documentation, we will lay out a surface deformation technique that defines a local rigidity energy for polygon meshes based on a discretization of the Dirichlet energy. 
+                We will present the so-called As-Symmetric Dirichlet-As-Possible method as an alternative to the As-Rigid-As-Possible shape deformation technique [<a href="#1">1</a>] that inspired it.
+            </p>
+        </div>
+    </section>
+    <div class="docs-section" id="motivation">
+        <h3 class="section-heading">Motivation</h3>
+        <p class="section-description">
+            As-Rigid-As-Possible shape deformation [<a href="#1">1</a>] is a prolific cornerstone of state-of-the-art direct shape deformation techniques. 
+            It has spawned multiple successors like SR-ARAP [<a href="#2">2</a>] and iARAP [<a href="#3">3</a>] aiming to improve upon the original method. 
+            Core to the method is the optimization of a rigidity energy that quantifies the local non-rigid deviation between a reference mesh and a deformed mesh. 
+            This local deviation is computed by fitting corresponding vertex stars to each other by way of orthogonal rotations. 
+            Leaving out of consideration the negative scaling factor domain i.e. performing a reflection and a rotation, this leads to a symmetry around the neutral scaling factor \(1\). 
+            As can be seen in <a href="#fig1">figure 1.a</a> the ARAP energy behaves symmetric with respect to the uniform upscaling and downscaling of the overlapping vertex star cells. 
+            From the standpoint of physical plausibility however, one would expect that the necessary energy for compression should exceed the energy needed for stretching.
+            It is also quite peculiar that the ARAP energy permits regions to be compressed onto a single point, since it assigns a finite energy to this case. 
+            These properties of the ARAP energy motivate us to come up with a different energy formulation.
+        </p>
+        <div class="row" id="fig1">
+            <div class="one-half column category" style="text-align: center">
+                <img class="u-max-full-width" src="images/ARAP_scaling_plot7.svg">
+<!--                 <p>ARAP energy under uniform scaling</p> -->
+                <p>(a) ARAP</p>
+            </div>
+            <div class="one-half column category" style="text-align: center">
+                <img class="u-max-full-width" src="images/SymDirichlet_scaling_plot7.svg">
+<!--                 <p>ASDAP energy under uniform scaling</p> -->
+                <p>(b) ASDAP</p>
+<!--                 <p>(b) Sym. Dirichlet</p> -->
+            </div>
+            <h6 style="text-align: center;"><b>Figure 1:</b> Energies under uniform scaling</h6>
+        </div>
+    </div>
+    <div class="docs-section" id="asdap">
+        <h3 class="section-heading">As-symmetric Dirichlet-as-possible Shape Deformation</h3>
+        <p class="section-description">
+            We propose a rigidity energy based on the symmetric Dirichlet energy of local surface transformations between a reference surface \(\Omega\) and a deformed surface \(\mathcal{S}\), 
+        </p>
+        <p id="eq1" class="section-description">
+            \[E_\mathcal{S}=\frac{1}{2}\int_\mathcal{S}\Vert\nabla T_x\Vert_F^2 + \Vert\nabla T_x^{-1}\Vert_F^2 \hspace{1mm}dx\]
+        </p>
+        <center><p class="section-description" style="width: 100%; text-align: left;">
+            <i>
+            where \(\Omega\) and \(\mathcal{S}\) are homeomorphic Riemannian manifolds, \(h:\mathcal{S}\rightarrow\Omega\) is a homeomorphism between \(\mathcal{S}\) and \(\Omega\), 
+            \(T_x\) is the best fitting linear scaling/shearing matrix transforming the local region of \(\mathcal{S}\) around \(x\) to the corresponding local region of \(\Omega\) around \(h(x)\), 
+            and \(\Vert\cdot\Vert_F\) is the Frobenius norm. 
+            </i>
+        </p></center>
+        <p class="section-description">
+            In this formulation, we measure local rigidity via linear transformation matrices that lack rotational and reflective components and aggregate them over a surface via the Dirichlet energy. 
+            Employing the ordinary Dirichlet energy for this purpose yields a function that grows with the upscaling of local regions and decays to \(0\) with downscaling. 
+            Because the minimization of the resulting energy functional would lead to a collapse of the optimized surface onto a single point, 
+            we additionally include the inverse transformation in our measure i.e. use the symmetric Dirichlet. 
+<!--             And so, by also including the inverse transformation in our measure i.e. using the symmetric Dirichlet, the energy also penalizes downscaling.  -->
+            This approach also penalizes downscaling and induces a minimum of \(2\) at the neutral scaling factor \(1\), as can be seen in <a href="#fig1">figure 1.b</a>. 
+        </p>
+
+        <h4 class="section-heading">Discretization</h4>
+        <p class="section-description">
+            For the discretization of the ASDAP energy to polygon meshes, we chose to discretize over the mesh faces. 
+            This is because the mesh faces are flat, such that the linear scaling/shearing transformations from local regions within one face to another are constant. 
+            Which means that it is sufficient to calculate a transformation per face pair and multiply it by the area of the integrated face. 
+<!--             We then get:  -->
+<!--             Also omitting the factor \(\frac{1}{2}\), since it has no influence on the optimization of this function, we get:  -->
+        </p>
+        <p id="eq2" class="section-description">
+            \[E_M=\sum_{t\in F(M)} A_t(\Vert T_{t}\Vert_F^2 + \Vert T_{t}^{-1}\Vert_F^2)\]
+        </p>
+        <center><p class="section-description" style="width: 100%; text-align: left;">
+            <i>
+            where \(M, R\) are polygon meshes with identical connectivity, 
+            \(F(M)\) is the face set of \(M\), 
+            \(f: F(M)\rightarrow F(R)\) is a bijective mapping of faces of \(M\) to their corresponding faces in \(R\), 
+            \(A_t\) is the area of the face \(t\), 
+            \(T_{t}\) is the linear scaling/shearing matrix that transforms the face \(t\) into the face \(f(t)\), 
+            and \(\Vert\cdot\Vert_F\) is the Frobenius norm. 
+            (A more detailed description on how \(T_t\) is calculated can be found in this <a href="#scshmtxcalc">section</a>.)
+            </i>
+        </p></center>
+        <p class="section-description">
+            While the continuous formulation (<a href="#eq1">eq. 1</a>) accounts for any change in shape through the penalization of scaling and shearing of the surface, this is not the case for the discretization in <a href="#eq2">equation 2</a>. 
+            Because it employs a face-based approach, the bending of the mesh at triangle boundaries is not accounted for. 
+            This sometimes leads to a crumpling of the surface, as the optimization is not penalized for bending faces at their boundaries. [<a href=#fig2>fig. 2.a</a>]
+            Thus, an additional bending term is necessary to remedy this shortcoming. 
+        </p>
+        <div class="row" id="fig2">
+            <div class="one-half column category" style="text-align: center;">
+                <video class="u-max-full-width" controls>
+                    <source src="videos/ASDAP_(scaling)_spikes.mp4" type="video/mp4">
+                </video>
+<!--                 <p><b>Figure 4:</b> ASDAP without bending</p> -->
+                <p>(a) ASDAP without bending</p>
+
+                <video class="u-max-full-width" controls>
+                    <source src="videos/ARAP_spikes.mp4" type="video/mp4">
+                </video>
+<!--                 <p><b>Figure 6:</b> original ARAP</p> -->
+                <p>(c) original ARAP</p>
+            </div>
+            <div class="one-half column category" style="text-align: center;">
+                <video class="u-max-full-width" controls>
+                    <source src="videos/ASDAP_spikes.mp4" type="video/mp4">
+                </video>
+<!--                 <p><b>Figure 5:</b> ASDAP</p> -->
+                <p>(b) ASDAP</p>
+
+                <video class="u-max-full-width" controls>
+                    <source src="videos/iARAP_spikes.mp4" type="video/mp4">
+                </video>
+<!--                 <p><b>Figure 7:</b> intrinsic ARAP</p> -->
+                <p>(d) intrinsic ARAP</p>
+            </div>
+            <h6 style="text-align: center;"><b>Figure 2:</b> Compression of a spiked surface</h6>
+        </div>
+<!--         <p class="section-description">
+            Thus an additional bending term is necessary to remedy this shortcoming. 
+        </p> -->
+
+        <h4>Bending</h4>
+        <p class="section-description">
+            A simple measure of the surface bending at the face boundaries is the dihedral angle of adjacent faces. 
+<!--         We use the dihedral angles between adjacent faces as a measure of the surface bending at the edges.  -->
+<!--         We solve this issue by including the sum of the squared differences in dihedral angles between adjacent faces in the reference and deformed meshes, we arrive at our final energy. -->
+            Taking the squared difference in dihedral angles of corresponding face pairs in the reference mesh and deformed mesh, we get the following modified bending energy.
+        </p>
+        <p id="eq4" class="section-description">
+            \[E_M=\sum_{t\in F(M)} A_t\left(\Vert T_{t}\Vert_F^2 + \Vert T_{t}^{-1}\Vert_F^2 + \sum_{u\in N(M, t)}(\alpha_{f(t)f(u)} - \alpha_{tu})^2\right)\]
+        </p>
+        <center><p class="section-description" style="width: 100%; text-align: left;">
+            <i>
+            where \(M, R\) are polygon meshes with identical connectivity, 
+            \(F(M)\) is the face set of \(M\), 
+            \(N(M, t)\) is the set of faces of \(M\) adjacent to \(t\),
+            \(f: F(M)\rightarrow F(R)\) is a bijective mapping of faces of \(M\) to their corresponding faces in \(R\), 
+            \(A_t\) is the area of the face \(t\), 
+            \(T_{t}\) is the linear scaling/shearing matrix that transforms the face \(t\) into the face \(f(t)\), 
+            \(\alpha_{tu}\) is the dihedral angle between \(t\) and \(u\), 
+            \(\alpha_{f(t)f(u)}\) is the dihedral angle between \(f(t)\) and \(f(u)\), 
+            and \(\Vert\cdot\Vert_F\) is the Frobenius norm.
+            </i>
+        </p></center>
+        <p class="section-description">
+<!--             Fortunately there is a simple way to calculate the dihedral bending angle between adjacent polygons. -->
+            Let us also note, that we calculate the dihedral angle \(\alpha_{ab}\) between two faces \(a, b\) with normals \(n_a, n_b\) the following way.
+        </p>
+        <p id="eq3" class="section-description">
+            \[\alpha_{ab}=\arccos\left(\frac{\vert n_a\cdot n_b\vert}{\vert n_a\vert\vert n_b\vert}\right)\]
+<!--             for the faces \(t, u\) and their normals \(n_t, n_u\). -->
+        </p>
+<!--         <center><p class="section-description" style="width: 100%; text-align: left;">
+            <i>
+            for the faces \(t, u\) and their normals \(n_t, n_u\).
+            </i>
+        </p></center> -->
+    </div>
+    <div class="docs-section" id="implementation">
+        <h3 class="section-heading">Implementation</h3>
+        <div class="row">
+            <div class="one-half column category">
+                Our implementation is based upon <a id="intrinsic-arap" href="https://github.com/ugogon/intrinsic-arap">https://github.com/ugogon/intrinsic-arap</a> and can be found under <a href="https://github.com/Brunololos/cgp-as-sym-dirichlet-as-possible">https://github.com/Brunololos/cgp-as-sym-dirichlet-as-possible</a>. 
+                It is implemented in C++ with the eigen library for math operations and tinyAD for the automatic differentiation of the energy functional. 
+                The libigl + imgui user interface is mostly adopted from <a href="#intrinsic-arap">intrinsic-arap</a>. 
+                <br><br>
+                We used momentum-augmented gradient descent for the optimization and calculated the scaling/shearing and bending gradients separately on a per-triangle basis. 
+                We weighted the previous iterations gradient by \(0.1\) and used a learning rate of \(0.005\).
+                Aiming to reduce the method's runtime further, vertices are marked as active or inactive, depending on whether they or one of their neighbors has met a set minimum gradient threshold during the last optimization iteration and are culled from consideration appropriately.
+                The linear triangle scaling/shearing matrices have been computed as shown in the subsection on <a href="#scshmtxcalc">scaling/shearing matrix calculation</a>.
+                All examples have been run on a desktop PC using an Intel® Core™ i5-12600K CPU and 31.8 GB of memory. 
+            </div>
+            <div class="one-half column category" id="scshmtxcalc">
+                <h5>Scaling/shearing matrix calculation</h5>
+                Given the reference triangle \(t_r\) with vertices \(r_0, r_1, r_2\) and its deformed counterpart \(t_d\) with vertices \(d_1, d_1, d_2\) 
+                the scaling/shearing transformation \(T_t\) is calculated via the two intermediate transformations \(R_t\) and \(D_t\). 
+                We only show the calculation of \(R_t\) completely, as \(D_t\) is calculated analogously.<br>
+
+                First we transform the points into a local coordinate system.
+                \[p_{r1} = r_1 - r_0, \hspace{10mm} p_{r2} = r_2 - r_0\]
+                Then the matrix components are determined.
+                \[R_{00} = \Vert p_{r1}\Vert, \hspace{8mm} R_{01} = \frac{p_{r1}\cdot p_{r2}}{\Vert p_{r1}\Vert}\]
+                \[R_{11} = \sqrt{\Vert p_{r2}\Vert^2 - R_{01}^2}\]
+                And finally get \(T_t\) as a product of the matrices \(R_t^{-1}\), \(D_t\). 
+                \[R_t = \begin{pmatrix}R_{00} & R_{01}\\ 0 & R_{11}\end{pmatrix}, \hspace{5mm} D_t = \begin{pmatrix}D_{00} & D_{01}\\ 0 & D_{11}\end{pmatrix}\]
+                \[T_t = D_t \cdot R_t^{-1}\]
+            </div>
+        </div>
+    </div>
+
+    <div class="docs-section" id="results">
+        <h3 class="section-heading">Results</h3>
+        <div class="u-pull-right" style="width: 40%;" id="fig3">
+            <div class="one-half column category">
+                <img class="u-max-full-width" src="images/frog_og.png">
+                <img class="u-max-full-width" src="images/duck_og.png">
+                <img class="u-max-full-width" src="images/monkey_og.png">
+                <img class="u-max-full-width" src="images/shiba_og.png">
+            </div>
+            <div class="one-half column category">
+                <img class="u-max-full-width" src="images/frog.png">
+                <img class="u-max-full-width" src="images/duck.png">
+                <img class="u-max-full-width" src="images/monkey.png">
+                <img class="u-max-full-width" src="images/shiba.png">
+            </div>
+            <h6 style="text-align: center;"><b>Figure 3:</b> ASDAP examples</h6>
+        </div>
+        <p>
+            Using ASDAP shape modeling allows us to generate largely physically plausible deformations of polygon meshes. [<a href="#fig3">fig. 3</a>]
+            Few constraints suffice to induce smooth and intuitive large-scale deformations. 
+            The procedure also accommodates changes in constraints during the optimization and can handle inhomogeneous local constraints. 
+            As can be seen towards the end of the animation in <a href="#fig2">figure 2.b</a>, the optimization can at times even resemble the simulation of a physical system. 
+            <br>
+            <br>
+            However, the current formulation requires further work to become practical. 
+            It struggles with robustness and speed of convergence, which makes it somewhat cumbersome. 
+            This is because the naive gradient descent procedure is prone to diverge or get stuck in local self-intersecting configurations. 
+            The optimization may reach a local maximum or saddle point where the gradient vanishes, 
+            converge to undesired minima created by the cancellation of bending and scaling gradients, 
+            or begin to degenerate parts of the mesh surface.
+            An example of this can be seen in <a href="#fig4">figure 4</a>, where the vertices of the bottom plane of a cube that are diagonally opposed had their positions swapped. 
+            Any small disturbance to this balanced system, like constraining one of the vertices, sets the optimization in motion again. 
+            The outlined issues arise prominently when thin meshes are optimized, as they have a tendency to become self-intersecting. 
+            To prevent this from happening, a lower learning rate has to be used, which in turn limits the speed of convergence. 
+            <br>
+            <br>
+            This shortcoming is further exacerbated by the sluggish speed of vertex translation.
+            Due to the locality of the energy formulation, a vertex is only compelled to change its position when one of its neighbors induces a deviation from its optimal state. 
+            This results in vertices far away from the constraints taking a long time to be affected by them, as the decaying gradients have to propagate through the mesh. 
+            These vertices take small gradient steps, such that the surface only moves significantly near the constraints. 
+            Clearly, this makes larger-scale translation a very slow process that even our introduction of momentum to the gradient descent could only slightly mitigate. 
+            All in all, it's no surprise that the optimization cannot deform at interactive rates for most, but the smallest meshes. 
+            <div class="u-pull-left" style="width: 40%;" id="fig4">
+                <img class="u-max-full-width" src="images/cube.png">
+                <img class="u-max-full-width" src="images/hourglass.png">
+                <h6 style="text-align: center;"><b>Figure 4:</b> Zero gradient<br>configuration</h6>
+            </div>
+
+            <h4>Further Work</h4>
+            While the previous section might make it seem like ASDAP is a flawed technique, 
+            it's speed and robustness can likely be greatly improved with further work. 
+            It should be possible to calculate upper bounds for the size of the gradient step during each iteration that can relatively safely be taken. 
+            This would allow the procedure to take larger gradient steps, converge faster, and be more robust. 
+            Such bounds might even give rise to a modified version of the ASDAP energy that inherently reduces the risk of divergence or self-intersection. 
+            <br>
+            <br>
+            It also seems interesting to explore different options of modeling the bending term. 
+            Our treatment of the bending term was rather simplistic. 
+            We chose to exclusively penalize the difference to the reference angle 
+            in a way that leads to a symmetry with respect to the chirality of the constellation of adjacent faces. 
+            This means that for a pair of adjacent faces there are two optimal bending constellations, one of which is undesired. 
+            And so one might conceive of a way to calculate and penalize the rotations between adjacent faces as an alternative to the usage of dihedral angles. 
+            Our exploration of this prospect showed that the usage of bending rotations necessitates to also prescribe the vertices to avoid self-intersection during the optimization. 
+            Otherwise, a situation might occur where the shortest path to the optimal angle is for a vertex to rotate through the interior of the surface, 
+            leading to self-intersection and likely degeneration of the surface.
+            <br>
+            <br>
+            Further, it appears promising to explore the efficacy of other optimization methods like Newton iterations 
+            to avoid some of the pitfalls of gradient descent. 
+        </p>
+    </div>
+
+    <div class="docs-section" id="acknowledgements">
+        <h3 class="section-heading">Acknowledgements</h3>
+        <p>
+            I want to sincerely thank Ugo Pavo Finnendahl for his insightful remarks, enthusiasm and invaluable guidance during our conversations about this project, 
+            Ryan Holmes who graciously published his 3d meshes for projects such as this one to use 
+            and the entire TU Berlin chair of Computer Graphics for this module and thus the opportunity for this project. 
+            Lastly, I want to thank you the reader for your interest in this topic and also project. 
+            For questions and remarks, feel free to contact me at <a href="loenne@campus.tu-berlin.de">loenne@campus.tu-berlin.de</a>.
+        </p>
+    </div>
+
+    <div class="docs-section" id="references">
+        <h3 class="section-heading">References</h3>
+        <ul class="popover-list">
+            <li class="popover-item" id="1">
+                [1] Olga Sorkine and Marc Alexa. As-rigid-as-possible surface modeling. In <i>Symposium on Geometry processing</i>, volume 4, pages 109-116. Citeseer, 2007.
+            </li>
+            <li class="popover-item" id="2">
+                [2] Zohar Levi and Craig Gotsman. Smooth rotation enhanced as-rigid-as-possible mesh animation. <i>IEEE Transactions on Visualization and Computer Graphics</i>, 21(2):264-277, 2015.
+            </li>
+            <li class="popover-item" id="3">
+                [3] Ugo Finnendahl, Matthias Schwartz, and Marc Alexa. Arap revisited: Discretizing the elastic energy using intrinsic voronoi cell. <i>Computer Graphics Forum</i>, n/a(n/a), 4 2023.
+            </li>
+
+        </ul>
+    </div>
+
+</div>
+
