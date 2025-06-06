@@ -1,0 +1,13 @@
+rotating ASDAP:
+The backside vertices of the letters were subject to rotating constraints,
+such that the front side vertices also rotate because the optimization tries to conserve the shapes of the letters.
+Because this graphic is only meant to "look nice" and show off the ASDAP technique,
+we chose to forgo to display which vertices positions are constrained.
+
+ASDAP_(scaling)_spikes:
+The top and bottom vertices are constrained and the optimization has been run for about 3h.
+The long tail of the optimization has been cut out as nothing visually discernible happened.
+
+ASDAP_spikes:
+The top and bottom vertices are constrained and the optimization has been run for about 3h.
+The video has been drastically sped up, such that the course of the optimization becomes more visually clear.
