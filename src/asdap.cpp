@@ -23,7 +23,7 @@ void initMesh(const Eigen::Matrix<double, -1, 3>& V, const Eigen::Matrix<int, -1
   data.hasConverged = false;
   data.iteration = 0;
   data.minimumGradient = 0.01; // 0.00001; // Could also use std::numeric_limits<double>::epsilon
-  data.bmode = BENDING::DIHEDRAL;
+  data.bmode = BENDING::REFERENCE;
   data.inputMesh.reset(new gcs::ManifoldSurfaceMesh(F));
   data.inputGeometry.reset(new gcs::VertexPositionGeometry(*data.inputMesh, V));
   // TODO: if there are cases where the input mesh is not a triangle mesh, create an intrinsic triangulation of the input mesh (In that case remove the test below)
@@ -728,13 +728,13 @@ std::pair<Eigen::Matrix3d, double> asdap_energy_non_rigid_local_face_rotation_gr
     // result += og_area * calcTinyAD9SquaredFrobenius(rotation_diff);
     // result += og_area * /* calcTinyAD9SquaredFrobenius(rotation_diff) */ calcTinyAD9SquaredFrobenius(og_rotation * op_rotation.inverse());
     // result += og_area * rotation_diff1 * rotation_diff2;
-    //result += og_area * (1/rotation_diff) * (1/rotation_diff);
+    // result += og_area * (1/rotation_diff) * (1/rotation_diff);
     // result += og_area * rotation_diff * rotation_diff;
 /*     if (rotation_diff > M_PI) {
       rotation_diff = rotation_diff - 2*(rotation_diff - M_PI);
     } */
     // result += og_area * ( min(rotation_diff, inv_rotation_diff) );
-    result += og_area * (rotation_diff / M_PI) * (rotation_diff / M_PI);
+    result += og_area * (rotation_diff / M_PI) * (rotation_diff / M_PI); // latest penalisation attempt
     energy += result.val;
 
 /*     std::cout << " => neighbour: face" << neighbourIndex << " (Energy: " << result.val << ")" << std::endl;

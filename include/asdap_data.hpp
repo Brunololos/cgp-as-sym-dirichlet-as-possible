@@ -3,7 +3,7 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <vector>
-#include "geometrycentral/surface/signpost_intrinsic_triangulation.h" // TODO: check geometry central includes
+#include "geometrycentral/surface/signpost_intrinsic_triangulation.h"
 #include <igl/min_quad_with_fixed.h>
 
 #include "asdap_utils.hpp"
@@ -35,7 +35,7 @@ struct ASDAPData {
 
   // the minimal size for a gradient during optimisation (All gradients smaller than it will be truncated to 0) // TODO: implement initialisation in asdap_precompute function
   double minimumGradient;
-  
+
   // geometries
   std::unique_ptr<gcs::ManifoldSurfaceMesh> inputMesh;
   std::unique_ptr<gcs::VertexPositionGeometry> inputGeometry;

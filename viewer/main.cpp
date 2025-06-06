@@ -616,8 +616,10 @@ int main(int argc, char *argv[])
         // constraints_mask(15) = 1;
         // constraints_mask(16) = 1;
         // constraints_mask(17) = 1;
+
         all_constraints = U;
-        //update_points();
+
+        // update_points();
         update_constraints(true);
         refresh_mesh_vertices();
         return true;
